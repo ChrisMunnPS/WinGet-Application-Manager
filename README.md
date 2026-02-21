@@ -118,7 +118,7 @@ Quick access to:
 │ [🔄 Refresh] [✓ All] [✗ None]  55 installed | 2 updates | 2 selected │
 │ [Search box...................] [🔍 Search] [✕ Clear] │
 ├───┬────────┬──────┬─────┬─────┬──────┬────────┤
-│☑ │ Name   │ ID   │Inst │Avail│Status│Source  │
+│☑  │ Name   │ ID   │Inst │Avail│Status│Source │
 ├───┼────────┼──────┼─────┼─────┼──────┼────────┤
 │[✓]│Discord │Disc..│1.0.9│1.0.x│Update│winget  │
 │[✓]│Git     │Git...│2.43 │2.44 │Update│winget  │
@@ -305,17 +305,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 📈 Roadmap
-
-- [ ] Multi-language support
-- [ ] Package comparison between systems
-- [ ] Scheduled automatic updates
-- [ ] Custom package sources
-- [ ] Export to other formats (CSV, XML)
-- [ ] Restore point creation before operations
-- [ ] Notification system for updates
-
----
 
 ## 💬 Support
 
