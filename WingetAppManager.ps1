@@ -1,7 +1,7 @@
-﻿#Requires -Version 5.0
+#Requires -Version 5.0
 <#
 .SYNOPSIS
-    Winget Application Manager - Complete Fixed Version
+    Winget Application Manager
 .DESCRIPTION
     - Fixed Background property error
     - Import/Export with data grid
