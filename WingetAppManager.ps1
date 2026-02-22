@@ -96,7 +96,7 @@ function Update-ButtonStyles {
     $t = $script:currentTheme
     foreach ($btn in @($btnExport, $btnImport, $btnBrowse, $btnClear, $btnTheme, $btnRefreshPackages, 
                        $btnUpdateSelected, $btnUninstallSelected, $btnSelectAll, $btnSelectNone, 
-                       $btnSearch, $btnInstallSelected, $btnCancel)) {
+                       $btnSearch, $btnInstallSelected, $btnCancel, $btnCopyLog, $btnClearLog)) {
         if ($btn) {
             $btn.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom($t.AccentPrimary)
             $btn.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#FFFFFF')
@@ -442,7 +442,11 @@ $xaml = @"
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="Real-time operation log" FontSize="14" Opacity="0.85" Margin="0,0,0,12"/>
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+                            <TextBlock Text="Real-time operation log" FontSize="14" Opacity="0.85" VerticalAlignment="Center"/>
+                            <Button x:Name="BtnCopyLog" Content="📋 Copy Log" Width="110" Height="32" Margin="16,0,8,0"/>
+                            <Button x:Name="BtnClearLog" Content="🗑 Clear" Width="90" Height="32"/>
+                        </StackPanel>
                         <Border Grid.Row="1" BorderThickness="1" CornerRadius="4">
                             <RichTextBox x:Name="LogViewer" IsReadOnly="True" VerticalScrollBarVisibility="Auto"
                                          FontFamily="Consolas" FontSize="12" Padding="12" BorderThickness="0">
@@ -561,6 +565,8 @@ $btnUninstallSelected = $window.FindName('BtnUninstallSelected')
 $txtPackageCount = $window.FindName('TxtPackageCount')
 $txtSearch = $window.FindName('TxtSearch')
 $btnSearch = $window.FindName('BtnSearch')
+$btnCopyLog = $window.FindName('BtnCopyLog')
+$btnClearLog = $window.FindName('BtnClearLog')
 $aboutContent = $window.FindName('AboutContent')
 $aboutTitle = $window.FindName('AboutTitle')
 $aboutVersion = $window.FindName('AboutVersion')
@@ -595,6 +601,189 @@ if ($btnTheme) {
     $btnTheme.Content = if ($script:settings.Theme -eq 'Dark') { '☀ Light Mode' } else { '🌙 Dark Mode' }
 }
 
+# Official WinGet Error Code Descriptions (from Microsoft documentation)
+# https://learn.microsoft.com/en-us/windows/package-manager/winget/returncode
+$script:WinGetErrorCodes = @{
+    # Success code
+    0 = 'Success'
+    
+    # General Errors (exact from Microsoft docs)
+    -1978335231 = 'Internal Error'
+    -1978335230 = 'Invalid command line arguments'
+    -1978335229 = 'Executing command failed'
+    -1978335228 = 'Opening manifest failed'
+    -1978335227 = 'Cancellation signal received'
+    -1978335226 = 'Running ShellExecute failed'
+    -1978335225 = 'Cannot process manifest. The manifest version is higher than supported. Please update the client.'
+    -1978335224 = 'Downloading installer failed'
+    -1978335223 = 'Cannot write to index; it is a higher schema version'
+    -1978335222 = 'The index is corrupt'
+    -1978335221 = 'The configured source information is corrupt'
+    -1978335220 = 'The source name is already configured'
+    -1978335219 = 'The source type is invalid'
+    -1978335218 = 'The MSIX file is a bundle, not a package'
+    -1978335217 = 'Data required by the source is missing'
+    -1978335216 = 'None of the installers are applicable for the current system'
+    -1978335215 = 'The installer file''s hash does not match the manifest'
+    -1978335214 = 'The source name does not exist'
+    -1978335213 = 'The source location is already configured under another name'
+    -1978335212 = 'No packages found'
+    -1978335211 = 'No sources are configured'
+    -1978335210 = 'Multiple packages found matching the criteria'
+    -1978335209 = 'No manifest found matching the criteria'
+    -1978335208 = 'Failed to get Public folder from source package'
+    -1978335207 = 'Command requires administrator privileges to run'
+    -1978335206 = 'The source location is not secure'
+    -1978335205 = 'The Microsoft Store client is blocked by policy'
+    -1978335204 = 'The Microsoft Store app is blocked by policy'
+    -1978335203 = 'The feature is currently under development. It can be enabled using winget settings.'
+    -1978335202 = 'Failed to install the Microsoft Store app'
+    -1978335201 = 'Failed to perform auto complete'
+    -1978335200 = 'Failed to initialize YAML parser'
+    -1978335199 = 'Encountered an invalid YAML key'
+    -1978335198 = 'Encountered a duplicate YAML key'
+    -1978335197 = 'Invalid YAML operation'
+    -1978335196 = 'Failed to build YAML doc'
+    -1978335195 = 'Invalid YAML emitter state'
+    -1978335194 = 'Invalid YAML data'
+    -1978335193 = 'LibYAML error'
+    -1978335192 = 'Manifest validation succeeded with warning'
+    -1978335191 = 'Manifest validation failed'
+    -1978335190 = 'Manifest is invalid'
+    -1978335189 = 'No applicable update found'
+    -1978335188 = 'winget upgrade --all completed with failures'
+    -1978335187 = 'Installer failed security check'
+    -1978335186 = 'Download size does not match expected content length'
+    -1978335185 = 'Uninstall command not found'
+    -1978335184 = 'Running uninstall command failed'
+    -1978335183 = 'ICU break iterator error'
+    -1978335182 = 'ICU casemap error'
+    -1978335181 = 'ICU regex error'
+    -1978335180 = 'Failed to install one or more imported packages'
+    -1978335179 = 'Could not find one or more requested packages'
+    -1978335178 = 'Json file is invalid'
+    -1978335177 = 'The source location is not remote'
+    -1978335176 = 'The configured rest source is not supported'
+    -1978335175 = 'Invalid data returned by rest source'
+    -1978335174 = 'Operation is blocked by Group Policy'
+    -1978335173 = 'Rest API internal error'
+    -1978335172 = 'Invalid rest source url'
+    -1978335171 = 'Unsupported MIME type returned by rest API'
+    -1978335170 = 'Invalid rest source contract version'
+    -1978335169 = 'The source data is corrupted or tampered'
+    -1978335168 = 'Error reading from the stream'
+    -1978335167 = 'Package agreements were not agreed to'
+    -1978335166 = 'Error reading input in prompt'
+    -1978335165 = 'The search request is not supported by one or more sources'
+    -1978335164 = 'The rest API endpoint is not found.'
+    -1978335163 = 'Failed to open the source.'
+    -1978335162 = 'Source agreements were not agreed to'
+    -1978335161 = 'Header size exceeds the allowable limit of 1024 characters. Please reduce the size and try again.'
+    -1978335160 = 'Missing resource file'
+    -1978335159 = 'Running MSI install failed'
+    -1978335158 = 'Arguments for msiexec are invalid'
+    -1978335157 = 'Failed to open one or more sources'
+    -1978335156 = 'Failed to validate dependencies'
+    -1978335155 = 'One or more package is missing'
+    -1978335154 = 'Invalid table column'
+    -1978335153 = 'The upgrade version is not newer than the installed version'
+    -1978335152 = 'Upgrade version is unknown and override is not specified'
+    -1978335151 = 'ICU conversion error'
+    -1978335150 = 'Failed to install portable package'
+    -1978335149 = 'Volume does not support reparse points.'
+    -1978335148 = 'Portable package from a different source already exists.'
+    -1978335147 = 'Unable to create symlink, path points to a directory.'
+    -1978335146 = 'The installer cannot be run from an administrator context.'
+    -1978335145 = 'Failed to uninstall portable package'
+    -1978335144 = 'Failed to validate DisplayVersion values against index.'
+    -1978335143 = 'One or more arguments are not supported.'
+    -1978335142 = 'Embedded null characters are disallowed for SQLite'
+    -1978335141 = 'Failed to find the nested installer in the archive.'
+    -1978335140 = 'Failed to extract archive.'
+    -1978335139 = 'Invalid relative file path to nested installer provided.'
+    -1978335138 = 'The server certificate did not match any of the expected values.'
+    -1978335137 = 'Install location must be provided.'
+    -1978335136 = 'Archive malware scan failed.'
+    -1978335135 = 'Found at least one version of the package installed.'
+    -1978335134 = 'A pin already exists for the package.'
+    -1978335133 = 'There is no pin for the package.'
+    -1978335132 = 'Unable to open the pin database.'
+    -1978335131 = 'One or more applications failed to install'
+    -1978335130 = 'One or more applications failed to uninstall'
+    -1978335129 = 'One or more queries did not return exactly one match'
+    -1978335128 = 'The package has a pin that prevents upgrade.'
+    -1978335127 = 'The package currently installed is the stub package'
+    -1978335126 = 'Application shutdown signal received'
+    -1978335125 = 'Failed to download package dependencies.'
+    -1978335124 = 'Failed to download package. Download for offline installation is prohibited.'
+    -1978335123 = 'A required service is busy or unavailable. Try again later.'
+    -1978335122 = 'The guid provided does not correspond to a valid resume state.'
+    -1978335121 = 'The current client version did not match the client version of the saved state.'
+    -1978335120 = 'The resume state data is invalid.'
+    -1978335119 = 'Unable to open the checkpoint database.'
+    -1978335118 = 'Exceeded max resume limit.'
+    -1978335117 = 'Invalid authentication info.'
+    -1978335116 = 'Authentication method not supported.'
+    -1978335115 = 'Authentication failed.'
+    -1978335114 = 'Authentication failed. Interactive authentication required.'
+    -1978335113 = 'Authentication failed. User cancelled.'
+    -1978335112 = 'Authentication failed. Authenticated account is not the desired account.'
+    -1978335111 = 'Repair command not found.'
+    -1978335110 = 'Repair operation is not applicable.'
+    -1978335109 = 'Repair operation failed.'
+    -1978335108 = 'The installer technology in use doesn''t support repair.'
+    -1978335107 = 'Repair operations involving administrator privileges are not permitted on packages installed within the user scope.'
+    -1978335106 = 'The SQLite connection was terminated to prevent corruption.'
+    -1978335105 = 'Failed to get Microsoft Store package catalog.'
+    -1978335104 = 'No applicable Microsoft Store package found from Microsoft Store package catalog.'
+    -1978335103 = 'Failed to get Microsoft Store package download information.'
+    -1978335102 = 'No applicable Microsoft Store package download information found.'
+    -1978335101 = 'Failed to retrieve Microsoft Store package license.'
+    -1978335100 = 'The Microsoft Store package does not support download command.'
+    -1978335099 = 'Failed to retrieve Microsoft Store package license. The Microsoft Entra Id account does not have required privilege.'
+    -1978335098 = 'Downloaded zero byte installer; ensure that your network connection is working properly.'
+    
+    # Install-specific errors (exact from Microsoft docs)
+    -1978334975 = 'Application is currently running. Exit the application then try again.'
+    -1978334974 = 'Another installation is already in progress. Try again later.'
+    -1978334973 = 'One or more file is being used. Exit the application then try again.'
+    -1978334972 = 'This package has a dependency missing from your system.'
+    -1978334971 = 'There''s no more space on your PC. Make space, then try again.'
+    -1978334970 = 'There''s not enough memory available to install. Close other applications then try again.'
+    -1978334969 = 'This application requires internet connectivity. Connect to a network then try again.'
+    -1978334968 = 'This application encountered an error during installation. Contact support.'
+    -1978334967 = 'Restart your PC to finish installation.'
+    -1978334966 = 'Installation failed. Restart your PC then try again.'
+    -1978334965 = 'Your PC will restart to finish installation.'
+    -1978334964 = 'You cancelled the installation.'
+    -1978334963 = 'Another version of this application is already installed.'
+    -1978334962 = 'A higher version of this application is already installed.'
+    -1978334961 = 'Organization policies are preventing installation. Contact your admin.'
+    -1978334960 = 'Failed to install package dependencies.'
+    -1978334959 = 'Application is currently in use by another application.'
+    -1978334958 = 'Invalid parameter.'
+    -1978334957 = 'Package not supported by the system.'
+    -1978334956 = 'The installer does not support upgrading an existing package.'
+    -1978334955 = 'Installation failed with installer custom error.'
+}
+
+function Get-WinGetErrorDescription {
+    param([int]$ExitCode)
+    
+    if ($script:WinGetErrorCodes.ContainsKey($ExitCode)) {
+        return $script:WinGetErrorCodes[$ExitCode]
+    }
+    
+    # Generic descriptions based on code ranges
+    if ($ExitCode -ge -1978335231 -and $ExitCode -le -1978335091) {
+        return "WinGet error (code: $ExitCode)"
+    } elseif ($ExitCode -ge -1978334975 -and $ExitCode -le -1978334955) {
+        return "Installation error (code: $ExitCode)"
+    } else {
+        return "Unknown error (code: $ExitCode)"
+    }
+}
+
 # Helper function to determine winget operation success
 function Test-WingetSuccess {
     param(
@@ -605,22 +794,19 @@ function Test-WingetSuccess {
     # Exit code 0 = definite success
     if ($ExitCode -eq 0) { return $true }
     
-    # Some success codes from winget
-    # -1978335189 (0x8A15000B) = No applicable update found (can be considered success)
-    # -1978335212 (0x8A150014) = No newer package versions are available
-    if ($ExitCode -eq -1978335189 -or $ExitCode -eq -1978335212) { return $true }
-    
-    # Check output for success indicators
-    if ($Output -match 'Successfully installed|Installation succeeded|upgrade succeeded|No newer package|No applicable update') {
+    # Official success codes (from WinGet documentation)
+    # -1978335189 = UPDATE_NOT_APPLICABLE (already at latest)
+    # -1978335153 = UPGRADE_VERSION_NOT_NEWER (already at latest)
+    # -1978335135 = PACKAGE_ALREADY_INSTALLED (for install operations)
+    if ($ExitCode -eq -1978335189 -or $ExitCode -eq -1978335153 -or $ExitCode -eq -1978335135) {
         return $true
     }
     
-    # Check for "already installed" messages (also success)
-    if ($Output -match 'already installed|version.*is already installed') {
+    # Check output for success patterns
+    if ($Output -match 'Successfully installed|Installation completed successfully|upgrade succeeded') {
         return $true
     }
     
-    # Otherwise, it's a failure
     return $false
 }
 
@@ -1136,19 +1322,9 @@ $btnUpdateSelected.Add_Click({
                         })
                     }
                 } else {
-                    # Log detailed failure
-                    $syncHash._failMsg = "Exit code: $exitCode"
-                    
-                    # Extract actual error from output
-                    if ($outputText -match 'error.*') {
-                        $syncHash._failMsg += " - $($Matches[0])"
-                    } elseif ($outputText -match 'failed.*') {
-                        $syncHash._failMsg += " - $($Matches[0])"
-                    } elseif ($outputText -match 'requires.*administrator') {
-                        $syncHash._failMsg += " - Requires administrator privileges"
-                    } elseif ($outputText -match 'in use|running') {
-                        $syncHash._failMsg += " - Application is in use"
-                    }
+                    # Log detailed failure with official error description
+                    $errorDesc = Get-WinGetErrorDescription -ExitCode $exitCode
+                    $syncHash._failMsg = $errorDesc
                     
                     $syncHash.Dispatcher.Invoke([Action]{
                         $syncHash.WriteLog.Invoke("  ✗ Failed: $($syncHash._failMsg)", 'Error')
@@ -1519,6 +1695,93 @@ $btnCancel.Add_Click({
     $btnCancel.IsEnabled = $false
     $btnCancel.Content = "Cancelling..."
     Write-Log 'Stopping after current package...' 'Warning'
+})
+
+# Copy Log button - offers Markdown or Text format
+$btnCopyLog.Add_Click({
+    # Create message box with options
+    $result = [System.Windows.MessageBox]::Show(
+        "Choose format:`n`nYes = Save as Markdown (.md)`nNo = Save as Text (.txt)",
+        'Copy Activity Log',
+        [System.Windows.MessageBoxButton]::YesNoCancel,
+        [System.Windows.MessageBoxImage]::Question
+    )
+    
+    if ($result -eq [System.Windows.MessageBoxResult]::Cancel) { return }
+    
+    $dialog = New-Object System.Windows.Forms.SaveFileDialog
+    $dialog.Title = 'Save Activity Log'
+    
+    if ($result -eq [System.Windows.MessageBoxResult]::Yes) {
+        # Markdown format
+        $dialog.Filter = 'Markdown files (*.md)|*.md|All files (*.*)|*.*'
+        $dialog.FileName = "WingetAppMgr_Log_$(Get-CultureDateStamp).md"
+    } else {
+        # Text format
+        $dialog.Filter = 'Text files (*.txt)|*.txt|All files (*.*)|*.*'
+        $dialog.FileName = "WingetAppMgr_Log_$(Get-CultureDateStamp).txt"
+    }
+    
+    $dialog.InitialDirectory = [Environment]::GetFolderPath('MyDocuments')
+    
+    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        try {
+            $textRange = New-Object System.Windows.Documents.TextRange($logViewer.Document.ContentStart, $logViewer.Document.ContentEnd)
+            $logText = $textRange.Text
+            
+            if ($result -eq [System.Windows.MessageBoxResult]::Yes) {
+                # Format as Markdown
+                $markdown = "# WinGet Application Manager - Activity Log`n"
+                $markdown += "**Generated:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n"
+                $markdown += "**Computer:** $env:COMPUTERNAME`n`n"
+                $markdown += "---`n`n"
+                $markdown += "``````log`n"
+                $markdown += $logText
+                $markdown += "``````n"
+                [System.IO.File]::WriteAllText($dialog.FileName, $markdown, [System.Text.Encoding]::UTF8)
+            } else {
+                # Save as plain text
+                [System.IO.File]::WriteAllText($dialog.FileName, $logText, [System.Text.Encoding]::UTF8)
+            }
+            
+            Write-Log "Log saved to: $($dialog.FileName)" 'Success'
+            
+            # Offer to open the file
+            $openResult = [System.Windows.MessageBox]::Show(
+                "Log saved successfully!`n`nOpen the file now?",
+                'Success',
+                [System.Windows.MessageBoxButton]::YesNo,
+                [System.Windows.MessageBoxImage]::Information
+            )
+            
+            if ($openResult -eq [System.Windows.MessageBoxResult]::Yes) {
+                Start-Process $dialog.FileName
+            }
+        } catch {
+            [System.Windows.MessageBox]::Show(
+                "Failed to save log: $($_.Exception.Message)",
+                'Error',
+                [System.Windows.MessageBoxButton]::OK,
+                [System.Windows.MessageBoxImage]::Error
+            )
+            Write-Log "Failed to save log: $($_.Exception.Message)" 'Error'
+        }
+    }
+})
+
+# Clear Log button
+$btnClearLog.Add_Click({
+    $result = [System.Windows.MessageBox]::Show(
+        'Clear all log entries?',
+        'Clear Activity Log',
+        [System.Windows.MessageBoxButton]::YesNo,
+        [System.Windows.MessageBoxImage]::Question
+    )
+    
+    if ($result -eq [System.Windows.MessageBoxResult]::Yes) {
+        $logViewer.Document.Blocks.Clear()
+        Write-Log 'Activity log cleared' 'Info'
+    }
 })
 
 # Auto-load
