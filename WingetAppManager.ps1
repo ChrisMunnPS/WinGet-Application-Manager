@@ -16,7 +16,7 @@ Add-Type -AssemblyName System.Drawing
 $script:settingsPath = "$env:APPDATA\WingetManager\settings.json"
 $script:settings = @{ Theme = 'Dark'; RecentFiles = @(); LastExportPath = '' }
 
-function Load-Settings {
+function Get-Settings {
     if (Test-Path $script:settingsPath) {
         try {
             $loaded = Get-Content $script:settingsPath -Raw | ConvertFrom-Json
@@ -33,7 +33,7 @@ function Save-Settings {
     $script:settings | ConvertTo-Json | Out-File $script:settingsPath -Encoding UTF8
 }
 
-Load-Settings
+Get-Settings
 
 function Get-CultureDateStamp {
     $culture = [System.Globalization.CultureInfo]::CurrentCulture
@@ -45,6 +45,64 @@ function Get-CultureDateStamp {
 
 function Get-ExportFileName {
     return "WingetAppMgr_$($env:COMPUTERNAME)_$(Get-CultureDateStamp).json"
+}
+
+# WinGet Availability and Version Check
+function Test-WinGetAvailability {
+    try {
+        # Check if winget command exists
+        $wingetPath = Get-Command winget -ErrorAction SilentlyContinue
+        
+        if (-not $wingetPath) {
+            return @{
+                Available = $false
+                Version = $null
+                Message = 'WinGet is not installed or not in PATH'
+            }
+        }
+        
+        # Get version
+        $versionOutput = & winget --version 2>&1
+        $version = $versionOutput -replace '[^0-9.]', ''
+        
+        return @{
+            Available = $true
+            Version = $version
+            Message = "WinGet version $version detected"
+        }
+    } catch {
+        return @{
+            Available = $false
+            Version = $null
+            Message = "Error checking WinGet: $($_.Exception.Message)"
+        }
+    }
+}
+
+function Show-WinGetStatus {
+    param($Status)
+    
+    if ($Status.Available) {
+        Write-Log "✓ $($Status.Message)" 'Success'
+        return $true
+    } else {
+        Write-Log "✗ $($Status.Message)" 'Error'
+        
+        $result = [System.Windows.MessageBox]::Show(
+            "WinGet is not available on this system.`n`n" +
+            "WinGet is required to use this application.`n`n" +
+            "Would you like to open the installation instructions?",
+            'WinGet Not Found',
+            [System.Windows.MessageBoxButton]::YesNo,
+            [System.Windows.MessageBoxImage]::Warning
+        )
+        
+        if ($result -eq [System.Windows.MessageBoxResult]::Yes) {
+            Start-Process 'https://learn.microsoft.com/en-us/windows/package-manager/winget/'
+        }
+        
+        return $false
+    }
 }
 
 function Write-Log {
@@ -95,8 +153,9 @@ $script:currentTheme = $script:themes[$script:settings.Theme]
 function Update-ButtonStyles {
     $t = $script:currentTheme
     foreach ($btn in @($btnExport, $btnImport, $btnBrowse, $btnClear, $btnTheme, $btnRefreshPackages, 
-                       $btnUpdateSelected, $btnUninstallSelected, $btnSelectAll, $btnSelectNone, 
-                       $btnSearch, $btnInstallSelected, $btnCancel, $btnCopyLog, $btnClearLog)) {
+                       $btnUpdateSelected, $btnUninstallSelected, $btnRepairSelected, $btnSelectAll, $btnSelectNone, 
+                       $btnSearch, $btnInstallSelected, $btnCancel, $btnCopyLog, $btnClearLog,
+                       $btnImportSelectAll, $btnImportDeselectAll, $btnInstallChecked)) {
         if ($btn) {
             $btn.Background = [System.Windows.Media.BrushConverter]::new().ConvertFrom($t.AccentPrimary)
             $btn.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom('#FFFFFF')
@@ -105,7 +164,7 @@ function Update-ButtonStyles {
     }
 }
 
-function Apply-Theme {
+function Set-Theme {
     param([string]$ThemeName)
     $script:currentTheme = $script:themes[$ThemeName]
     $t = $script:currentTheme
@@ -309,7 +368,7 @@ $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Winget Application Manager" Height="800" Width="1200"
-        MinHeight="700" MinWidth="1000" WindowStartupLocation="CenterScreen" AllowDrop="True">
+        MinHeight="700" MinWidth="1000" WindowStartupLocation="CenterScreen">
     <Grid x:Name="MainGrid">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -339,6 +398,7 @@ $xaml = @"
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
                         
@@ -354,7 +414,7 @@ $xaml = @"
                                 <Button x:Name="BtnBrowse" Grid.Column="1" Content="📁 Browse" Width="100" Height="40" FontSize="13" Margin="8,0,0,0" Cursor="Hand"/>
                                 <Button x:Name="BtnClear" Grid.Column="2" Content="✕ Clear" Width="90" Height="40" FontSize="13" Margin="8,0,0,0" Cursor="Hand"/>
                             </Grid>
-                            <TextBlock x:Name="HintText" Text="💡 Drag and drop a JSON file here" FontSize="12" Opacity="0.85" Margin="0,8,0,0"/>
+                            <TextBlock x:Name="HintText" Text="💡 Use Browse button to select a JSON file, or paste the file path directly" FontSize="12" Opacity="0.85" Margin="0,8,0,0"/>
                         </StackPanel>
                         
                         <Grid Grid.Row="1" Margin="0,0,0,16">
@@ -363,13 +423,22 @@ $xaml = @"
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <Button x:Name="BtnExport" Grid.Column="0" Content="⬆ Export Applications" Height="50" FontSize="14" FontWeight="SemiBold" Margin="0,0,10,0" Cursor="Hand"/>
-                            <Button x:Name="BtnImport" Grid.Column="1" Content="⬇ Import Applications" Height="50" FontSize="14" FontWeight="SemiBold" Margin="10,0,0,0" Cursor="Hand"/>
+                            <Button x:Name="BtnImport" Grid.Column="1" Content="⬇ Load / Install" Height="50" FontSize="14" FontWeight="SemiBold" Margin="10,0,0,0" Cursor="Hand"/>
                         </Grid>
                         
-                        <DataGrid x:Name="ImportExportGrid" Grid.Row="2" AutoGenerateColumns="False" CanUserAddRows="False" 
-                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal" SelectionMode="Single" IsReadOnly="True"
+                        <!-- Selection buttons for import grid -->
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12" x:Name="ImportSelectionPanel" Visibility="Collapsed">
+                            <TextBlock Text="Select packages to install:" FontSize="13" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                            <Button x:Name="BtnImportSelectAll" Content="☑ Select All" Width="100" Height="32" Margin="0,0,8,0" FontSize="12"/>
+                            <Button x:Name="BtnImportDeselectAll" Content="☐ Deselect All" Width="110" Height="32" Margin="0,0,16,0" FontSize="12"/>
+                            <Button x:Name="BtnInstallChecked" Content="⬇ Install Checked" Width="140" Height="32" FontSize="13" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        
+                        <DataGrid x:Name="ImportExportGrid" Grid.Row="3" AutoGenerateColumns="False" CanUserAddRows="False" 
+                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal" SelectionMode="Extended" IsReadOnly="False"
                                   VerticalScrollBarVisibility="Auto">
                             <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="✓" Binding="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
                                 <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="2*" IsReadOnly="True"/>
                                 <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="2*" IsReadOnly="True"/>
                                 <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="*" IsReadOnly="True"/>
@@ -429,6 +498,8 @@ $xaml = @"
                                     FontSize="14" FontWeight="Bold"/>
                             <Button x:Name="BtnInstallSelected" Content="⬇ Install Selected" Width="140" Height="44" Margin="0,0,8,0"
                                     FontSize="14" FontWeight="Bold"/>
+                            <Button x:Name="BtnRepairSelected" Content="🔧 Repair Selected" Width="140" Height="44" Margin="0,0,8,0"
+                                    FontSize="13"/>
                             <Button x:Name="BtnUninstallSelected" Content="🗑 Uninstall Selected" Width="160" Height="44"
                                     FontSize="13"/>
                         </StackPanel>
@@ -555,12 +626,17 @@ $importExportContent = $window.FindName('ImportExportContent')
 $packageManagerContent = $window.FindName('PackageManagerContent')
 $activityLogContent = $window.FindName('ActivityLogContent')
 $importExportGrid = $window.FindName('ImportExportGrid')
+$importSelectionPanel = $window.FindName('ImportSelectionPanel')
+$btnImportSelectAll = $window.FindName('BtnImportSelectAll')
+$btnImportDeselectAll = $window.FindName('BtnImportDeselectAll')
+$btnInstallChecked = $window.FindName('BtnInstallChecked')
 $packageManagerGrid = $window.FindName('PackageManagerGrid')
 $btnRefreshPackages = $window.FindName('BtnRefreshPackages')
 $btnSelectAll = $window.FindName('BtnSelectAll')
 $btnSelectNone = $window.FindName('BtnSelectNone')
 $btnUpdateSelected = $window.FindName('BtnUpdateSelected')
 $btnInstallSelected = $window.FindName('BtnInstallSelected')
+$btnRepairSelected = $window.FindName('BtnRepairSelected')
 $btnUninstallSelected = $window.FindName('BtnUninstallSelected')
 $txtPackageCount = $window.FindName('TxtPackageCount')
 $txtSearch = $window.FindName('TxtSearch')
@@ -586,7 +662,7 @@ $hyperlinkLinkedIn = $window.FindName('HyperlinkLinkedIn')
 $window.AddHandler(
     [System.Windows.Documents.Hyperlink]::RequestNavigateEvent,
     [System.Windows.RoutedEventHandler]{
-        param($sender, $e)
+        param($_, $e)
         try {
             Start-Process $e.Uri.AbsoluteUri
             $e.Handled = $true
@@ -596,7 +672,7 @@ $window.AddHandler(
     }
 )
 
-Apply-Theme -ThemeName $script:settings.Theme
+Set-Theme -ThemeName $script:settings.Theme
 if ($btnTheme) {
     $btnTheme.Content = if ($script:settings.Theme -eq 'Dark') { '☀ Light Mode' } else { '🌙 Dark Mode' }
 }
@@ -811,7 +887,7 @@ function Test-WingetSuccess {
 }
 
 # IMPROVED Refresh - better parsing to catch ALL updates
-function Refresh-PackageList {
+function Update-PackageList {
     # Prevent concurrent refresh operations
     if ($script:isRefreshing) {
         Write-Log 'Refresh already in progress, please wait...' 'Warning'
@@ -1133,7 +1209,7 @@ function Update-SelectionCount {
     }
 }
 
-$btnRefreshPackages.Add_Click({ Refresh-PackageList })
+$btnRefreshPackages.Add_Click({ Update-PackageList })
 $btnSearch.Add_Click({ Search-Packages })
 $txtSearch.Add_KeyDown({ param($s, $e); if ($e.Key -eq 'Return') { Search-Packages } })
 
@@ -1689,6 +1765,214 @@ $btnUninstallSelected.Add_Click({
     Start-RunspaceOperation -SyncHash $syncHash -WorkScript $uninstallScript -OpArgs @{ Packages = $selected } -OnComplete $uninstallComplete
 })
 
+# Repair Selected - with detailed troubleshooting
+$btnRepairSelected.Add_Click({
+    $selected = @()
+    
+    if ($script:currentView -eq 'installed') {
+        $selected = @($script:installedPackages | Where-Object { $_.Selected -and $_.IsInstalled })
+    }
+    
+    if ($selected.Count -eq 0) {
+        [System.Windows.MessageBox]::Show(
+            'No packages selected.`n`nPlease select at least one installed package to repair.',
+            'No Selection',
+            [System.Windows.MessageBoxButton]::OK,
+            [System.Windows.MessageBoxImage]::Warning
+        )
+        return
+    }
+    
+    # Detailed warning about repair limitations
+    $msg = "Repair $($selected.Count) package(s)?`n`n" +
+           "⚠ IMPORTANT - Repair Limitations:`n" +
+           "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`n" +
+           "✓ MSI installers: Usually work`n" +
+           "✓ MSIX packages: Usually work`n" +
+           "✗ EXE installers: Rarely supported`n" +
+           "✗ Store apps: Limited support`n" +
+           "✗ Portable apps: Not supported`n`n" +
+           "If repair fails: Uninstall and reinstall instead.`n`n" +
+           "Continue with repair attempt?"
+    
+    $result = [System.Windows.MessageBox]::Show(
+        $msg,
+        'Repair Packages',
+        [System.Windows.MessageBoxButton]::YesNo,
+        [System.Windows.MessageBoxImage]::Question
+    )
+    
+    if ($result -ne [System.Windows.MessageBoxResult]::Yes) { return }
+    
+    Write-Log '═══════════════════════════════════════' 'Info'
+    Write-Log "🔧 Repairing $($selected.Count) packages..." 'Info'
+    Write-Log "ℹ Some packages may not support repair" 'Warning'
+    
+    $mainTabs.SelectedIndex = 2
+    Set-UIBusy -Busy $true -StatusText 'Repairing...'
+    
+    $syncHash = [hashtable]::Synchronized(@{
+        Dispatcher = $window.Dispatcher
+        WriteLog = { param($msg, $level) Write-Log $msg $level }
+        StatusLabel = $statusLabel
+        TxtCurrentApp = $txtCurrentApp
+        TxtProgressDetail = $txtProgressDetail
+    })
+    
+    $repairScript = {
+        $packages = $opArgs.Packages
+        $results = @()
+        
+        try {
+            $prevEncoding = $null
+            try {
+                $prevEncoding = [Console]::OutputEncoding
+                [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+            } catch { }
+            
+            $total = $packages.Count
+            $current = 0
+            
+            foreach ($pkg in $packages) {
+                if ($syncHash._cancelled) {
+                    $syncHash.Dispatcher.Invoke([Action]{ $syncHash.WriteLog.Invoke("Cancelled", 'Warning') })
+                    break
+                }
+                
+                $current++
+                $syncHash._currentApp = $pkg.Name
+                $syncHash._progress = "$current/$total"
+                
+                $syncHash.Dispatcher.Invoke([Action]{
+                    $syncHash.StatusLabel.Text = "Repairing..."
+                    $syncHash.TxtCurrentApp.Text = "Current: $($syncHash._currentApp)"
+                    $syncHash.TxtCurrentApp.Visibility = 'Visible'
+                    $syncHash.TxtProgressDetail.Text = $syncHash._progress
+                    $syncHash.TxtProgressDetail.Visibility = 'Visible'
+                    $syncHash.WriteLog.Invoke("[$($syncHash._progress)] Repairing $($syncHash._currentApp)...", 'Info')
+                })
+                
+                $null = & winget repair --id $pkg.Id --silent --accept-source-agreements 2>&1
+                $exitCode = $LASTEXITCODE
+                
+                # Check for specific repair error codes
+                $notSupported = $false
+                $reason = ""
+                
+                switch ($exitCode) {
+                    -1978335110 { # REPAIR_NOT_APPLICABLE
+                        $notSupported = $true
+                        $reason = "Package doesn't support repair"
+                    }
+                    -1978335108 { # REPAIR_NOT_SUPPORTED
+                        $notSupported = $true
+                        $reason = "Installer type doesn't support repair (likely EXE)"
+                    }
+                    -1978335111 { # NO_REPAIR_INFO_FOUND
+                        $notSupported = $true
+                        $reason = "No repair command in manifest"
+                    }
+                    -1978335109 { # EXEC_REPAIR_FAILED
+                        $reason = "Repair command failed to execute"
+                    }
+                    0 {
+                        $reason = ""
+                    }
+                    default {
+                        $reason = Get-WinGetErrorDescription -ExitCode $exitCode
+                    }
+                }
+                
+                $isSuccess = ($exitCode -eq 0)
+                
+                if ($isSuccess) {
+                    $syncHash.Dispatcher.Invoke([Action]{
+                        $syncHash.WriteLog.Invoke("  ✓ Repaired successfully", 'Success')
+                    })
+                } elseif ($notSupported) {
+                    $syncHash.Dispatcher.Invoke([Action]{
+                        $syncHash.WriteLog.Invoke("  ℹ $reason", 'Warning')
+                        $syncHash.WriteLog.Invoke("  💡 Alternative: Uninstall → Reinstall", 'Info')
+                    })
+                } else {
+                    $syncHash.Dispatcher.Invoke([Action]{
+                        $syncHash.WriteLog.Invoke("  ✗ Failed: $reason", 'Error')
+                        $syncHash.WriteLog.Invoke("  💡 Try: Run as Administrator, or Uninstall → Reinstall", 'Info')
+                    })
+                }
+                
+                $results += [PSCustomObject]@{
+                    Package = $pkg.Name
+                    Success = $isSuccess
+                    Supported = -not $notSupported
+                    Reason = $reason
+                }
+            }
+            
+            if ($prevEncoding) {
+                try { [Console]::OutputEncoding = $prevEncoding } catch { }
+            }
+            
+            $syncHash.Result = [PSCustomObject]@{ Results = $results; Cancelled = $syncHash._cancelled }
+        } catch {
+            $syncHash.Error = $_.Exception.Message
+        }
+    }
+    
+    $repairComplete = {
+        Set-UIBusy -Busy $false
+        $op = $script:_activeOp
+        
+        if (-not $op) { return }
+        
+        if ($op.Error) {
+            Write-Log "Error: $($op.Error)" 'Error'
+        } elseif ($op._cancelled -or ($op.Result -and $op.Result.Cancelled)) {
+            Write-Log "Cancelled" 'Warning'
+        } else {
+            if ($op.Result -and $op.Result.Results) {
+                $successful = @($op.Result.Results | Where-Object { $_.Success }).Count
+                $failed = @($op.Result.Results | Where-Object { -not $_.Success -and $_.Supported }).Count
+                $unsupported = @($op.Result.Results | Where-Object { -not $_.Supported }).Count
+                
+                Write-Log "" 'Info'
+                if ($successful -gt 0) {
+                    Write-Log "✓ Repaired: $successful packages" 'Success'
+                }
+                if ($failed -gt 0) {
+                    Write-Log "✗ Failed: $failed packages" 'Error'
+                }
+                if ($unsupported -gt 0) {
+                    Write-Log "ℹ Not supported: $unsupported packages" 'Warning'
+                }
+                
+                Write-Log "" 'Info'
+                Write-Log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" 'Info'
+                Write-Log "📋 Repair Troubleshooting Guide" 'Info'
+                Write-Log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" 'Info'
+                Write-Log "" 'Info'
+                Write-Log "What works with repair:" 'Info'
+                Write-Log "  ✓ MSI installers (Windows Installer)" 'Success'
+                Write-Log "  ✓ MSIX packages (Microsoft Store format)" 'Success'
+                Write-Log "" 'Info'
+                Write-Log "What doesn't work:" 'Info'
+                Write-Log "  ✗ EXE installers (most desktop apps)" 'Error'
+                Write-Log "  ✗ Portable apps (no installation)" 'Error'
+                Write-Log "  ✗ Some Store apps (limited support)" 'Error'
+                Write-Log "" 'Info'
+                Write-Log "If repair doesn't work:" 'Warning'
+                Write-Log "  1. Try running as Administrator" 'Info'
+                Write-Log "  2. Close the app completely" 'Info'
+                Write-Log "  3. Uninstall, then reinstall" 'Info'
+                Write-Log "  4. Download from official website" 'Info'
+            }
+        }
+        Write-Log '═══════════════════════════════════════' 'Info'
+    }
+    
+    Start-RunspaceOperation -SyncHash $syncHash -WorkScript $repairScript -OpArgs @{ Packages = $selected } -OnComplete $repairComplete
+})
+
 # CANCEL
 $btnCancel.Add_Click({
     $script:cancelRequested = $true
@@ -1789,14 +2073,14 @@ $script:packagesLoaded = $false
 $mainTabs.Add_SelectionChanged({
     if ($mainTabs.SelectedIndex -eq 1 -and -not $script:packagesLoaded) {
         $script:packagesLoaded = $true
-        Refresh-PackageList
+        Update-PackageList
     }
 })
 
 # Theme
 $btnTheme.Add_Click({
     $newTheme = if ($script:settings.Theme -eq 'Dark') { 'Light' } else { 'Dark' }
-    Apply-Theme -ThemeName $newTheme
+    Set-Theme -ThemeName $newTheme
     $btnTheme.Content = if ($script:settings.Theme -eq 'Dark') { '☀ Light Mode' } else { '🌙 Dark Mode' }
 })
 
@@ -1831,31 +2115,7 @@ $btnBrowse.Add_Click({
     }
 })
 
-# Drag and drop support
-$window.Add_DragEnter({
-    param($sender, $e)
-    if ($e.Data.GetDataPresent([System.Windows.DataFormats]::FileDrop)) {
-        $e.Effects = [System.Windows.DragDropEffects]::Copy
-    } else {
-        $e.Effects = [System.Windows.DragDropEffects]::None
-    }
-    $e.Handled = $true
-})
-
-$window.Add_Drop({
-    param($sender, $e)
-    if ($e.Data.GetDataPresent([System.Windows.DataFormats]::FileDrop)) {
-        $files = $e.Data.GetData([System.Windows.DataFormats]::FileDrop)
-        $firstFile = $files[0]
-        if ($firstFile.EndsWith('.json', [System.StringComparison]::OrdinalIgnoreCase)) {
-            $txtFilePath.Text = $firstFile
-            Write-Log "Dropped file: $firstFile" 'Info'
-        } else {
-            Write-Log 'Only JSON files are supported' 'Warning'
-        }
-    }
-    $e.Handled = $true
-})
+# Export button handler
 $btnExport.Add_Click({
     $filePath = $txtFilePath.Text.Trim()
 
@@ -1910,7 +2170,7 @@ $btnExport.Add_Click({
             } catch { }
             
             # Run winget export
-            $out = & winget export $filePath --accept-source-agreements 2>&1
+            $null = & winget export $filePath --accept-source-agreements 2>&1
             $exportExitCode = $LASTEXITCODE
             
             Start-Sleep -Milliseconds 500
@@ -1989,6 +2249,8 @@ $btnExport.Add_Click({
 
     Start-RunspaceOperation -SyncHash $syncHash -WorkScript $exportScript -OpArgs @{ FilePath = $filePath } -OnComplete $exportComplete
 })
+
+# Import Button - Load JSON and show selection grid
 $btnImport.Add_Click({
     $filePath = $txtFilePath.Text.Trim()
 
@@ -1996,7 +2258,6 @@ $btnImport.Add_Click({
         $dialog = New-Object System.Windows.Forms.OpenFileDialog
         $dialog.Title = 'Select JSON manifest to import'
         $dialog.Filter = 'JSON files (*.json)|*.json|All files (*.*)|*.*'
-        $dialog.FilterIndex = 1
         
         if ($script:settings.LastExportPath) {
             $dialog.InitialDirectory = Split-Path $script:settings.LastExportPath -Parent
@@ -2021,10 +2282,6 @@ $btnImport.Add_Click({
         return
     }
 
-    Write-Log '═══════════════════════════════════════' 'Info'
-    Write-Log 'Starting import operation...' 'Info'
-    
-    # Load and preview packages
     try {
         $jsonContent = Get-Content -Path $filePath -Raw -Encoding UTF8
         $json = $jsonContent | ConvertFrom-Json
@@ -2037,16 +2294,26 @@ $btnImport.Add_Click({
             throw 'No packages found in file.'
         }
         
-        $result = [System.Windows.MessageBox]::Show(
-            "Import $($packages.Count) package(s) from this file?",
-            'Confirm Import',
-            [System.Windows.MessageBoxButton]::YesNo,
-            [System.Windows.MessageBoxImage]::Question
-        )
-        
-        if ($result -ne [System.Windows.MessageBoxResult]::Yes) {
-            return
+        # Populate grid - ALL CHECKED BY DEFAULT
+        $script:importExportPackages = @()
+        foreach ($pkg in $packages) {
+            $script:importExportPackages += [PSCustomObject]@{
+                Selected = $true
+                Name = if ($pkg.Name) { $pkg.Name } else { $pkg.PackageIdentifier }
+                Id = $pkg.PackageIdentifier
+                Version = $pkg.Version
+                Status = 'Ready'
+            }
         }
+        
+        $importExportGrid.ItemsSource = $script:importExportPackages
+        $importSelectionPanel.Visibility = 'Visible'  # Show selection buttons
+        
+        Write-Log '═══════════════════════════════════════' 'Info'
+        Write-Log "📦 Loaded $($packages.Count) packages from JSON" 'Success'
+        Write-Log "✓ All $($packages.Count) packages selected by default" 'Info'
+        Write-Log "ℹ Use Select/Deselect buttons or click 'Install Checked'" 'Info'
+        Write-Log '═══════════════════════════════════════' 'Info'
         
     } catch {
         [System.Windows.MessageBox]::Show(
@@ -2057,25 +2324,71 @@ $btnImport.Add_Click({
         )
         return
     }
+})
 
-    Set-UIBusy -Busy $true -StatusText 'Importing...'
+# Import Select All button
+$btnImportSelectAll.Add_Click({
+    if ($script:importExportPackages.Count -gt 0) {
+        foreach ($pkg in $script:importExportPackages) {
+            $pkg.Selected = $true
+        }
+        $importExportGrid.Items.Refresh()
+        Write-Log "✓ Selected all $($script:importExportPackages.Count) packages" 'Info'
+    }
+})
+
+# Import Deselect All button
+$btnImportDeselectAll.Add_Click({
+    if ($script:importExportPackages.Count -gt 0) {
+        foreach ($pkg in $script:importExportPackages) {
+            $pkg.Selected = $false
+        }
+        $importExportGrid.Items.Refresh()
+        Write-Log "○ Deselected all packages" 'Info'
+    }
+})
+
+# Install Checked button - same as Import Step 2
+$btnInstallChecked.Add_Click({
+    $selected = @($script:importExportPackages | Where-Object { $_.Selected })
     
-    # Switch to Import/Export tab to show progress
-    $mainTabs.SelectedIndex = 0
-
+    if ($selected.Count -eq 0) {
+        [System.Windows.MessageBox]::Show(
+            'No packages selected.`n`nPlease check at least one package to install.',
+            'No Selection',
+            [System.Windows.MessageBoxButton]::OK,
+            [System.Windows.MessageBoxImage]::Warning
+        )
+        return
+    }
+    
+    $result = [System.Windows.MessageBox]::Show(
+        "Install $($selected.Count) of $($script:importExportPackages.Count) checked packages?",
+        'Confirm Install',
+        [System.Windows.MessageBoxButton]::YesNo,
+        [System.Windows.MessageBoxImage]::Question
+    )
+    
+    if ($result -ne [System.Windows.MessageBoxResult]::Yes) {
+        return
+    }
+    
+    Write-Log '═══════════════════════════════════════' 'Info'
+    Write-Log "Installing $($selected.Count) checked packages..." 'Install'
+    
+    $mainTabs.SelectedIndex = 2
+    Set-UIBusy -Busy $true -StatusText 'Installing...'
+    
     $syncHash = [hashtable]::Synchronized(@{
         Dispatcher = $window.Dispatcher
         WriteLog = { param($msg, $level) Write-Log $msg $level }
         StatusLabel = $statusLabel
         TxtCurrentApp = $txtCurrentApp
         TxtProgressDetail = $txtProgressDetail
-        ImportExportGrid = $importExportGrid
-        Result = $null
-        Error = $null
     })
 
-    $importScript = {
-        $filePath = $opArgs.FilePath
+    $installScript = {
+        $packages = $opArgs.Packages
         $results = @()
         
         try {
@@ -2085,21 +2398,8 @@ $btnImport.Add_Click({
                 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
             } catch { }
             
-            # Load packages
-            $jsonContent = Get-Content -Path $filePath -Raw -Encoding UTF8
-            $json = $jsonContent | ConvertFrom-Json
-            
-            if ($json.Packages) {
-                $packages = $json.Packages
-            } elseif ($json.Sources -and $json.Sources[0].Packages) {
-                $packages = $json.Sources[0].Packages
-            } else {
-                throw 'No packages found.'
-            }
-            
             $total = $packages.Count
             $current = 0
-            $gridData = @()
             
             foreach ($pkg in $packages) {
                 if ($syncHash._cancelled) {
@@ -2108,22 +2408,9 @@ $btnImport.Add_Click({
                 }
                 
                 $current++
-                $pkgName = if ($pkg.Name) { $pkg.Name } else { $pkg.PackageIdentifier }
-                
-                # Update grid - Installing
-                $gridData += [PSCustomObject]@{
-                    Name = $pkgName
-                    Id = $pkg.PackageIdentifier
-                    Version = $pkg.Version
-                    Status = 'Installing...'
-                }
-                $syncHash.Dispatcher.Invoke([Action]{
-                    $syncHash.ImportExportGrid.ItemsSource = $gridData
-                })
-                
-                # Update status
-                $syncHash._currentApp = $pkgName
+                $syncHash._currentApp = $pkg.Name
                 $syncHash._progress = "$current/$total"
+                
                 $syncHash.Dispatcher.Invoke([Action]{
                     $syncHash.StatusLabel.Text = "Installing..."
                     $syncHash.TxtCurrentApp.Text = "Current: $($syncHash._currentApp)"
@@ -2133,22 +2420,26 @@ $btnImport.Add_Click({
                     $syncHash.WriteLog.Invoke("[$($syncHash._progress)] Installing $($syncHash._currentApp)...", 'Install')
                 })
                 
-                # Install package
-                # Install with proper flags including --silent
-                $out = & winget install --id $pkg.PackageIdentifier --silent --accept-source-agreements --accept-package-agreements 2>&1
+                $out = & winget install --id $pkg.Id --silent --accept-source-agreements --accept-package-agreements 2>&1
                 $exitCode = $LASTEXITCODE
+                $outputText = ($out | Out-String).Trim()
                 
-                $success = ($exitCode -eq 0)
+                $isSuccess = Test-WingetSuccess -ExitCode $exitCode -Output $outputText
                 
-                # Update grid - result
-                $gridData[-1].Status = if ($success) { 'Installed ✓' } else { 'Failed ✗' }
-                $syncHash.Dispatcher.Invoke([Action]{
-                    $syncHash.ImportExportGrid.ItemsSource = $gridData
-                })
+                if ($isSuccess) {
+                    $syncHash.Dispatcher.Invoke([Action]{
+                        $syncHash.WriteLog.Invoke("  ✓ Installed successfully", 'Success')
+                    })
+                } else {
+                    $errorDesc = Get-WinGetErrorDescription -ExitCode $exitCode
+                    $syncHash.Dispatcher.Invoke([Action]{
+                        $syncHash.WriteLog.Invoke("  ✗ Failed: $errorDesc", 'Error')
+                    })
+                }
                 
                 $results += [PSCustomObject]@{
-                    Package = $pkgName
-                    Success = $success
+                    Package = $pkg.Name
+                    Success = $isSuccess
                 }
             }
             
@@ -2161,29 +2452,62 @@ $btnImport.Add_Click({
             $syncHash.Error = $_.Exception.Message
         }
     }
-
-    $importComplete = {
+    
+    $installComplete = {
         Set-UIBusy -Busy $false
         $op = $script:_activeOp
         
+        if (-not $op) { return }
+        
         if ($op.Error) {
-            Write-Log "Import failed: $($op.Error)" 'Error'
-        } elseif ($op.Result.Cancelled) {
-            Write-Log "Import cancelled" 'Warning'
+            Write-Log "Error: $($op.Error)" 'Error'
+        } elseif ($op._cancelled -or ($op.Result -and $op.Result.Cancelled)) {
+            Write-Log "Cancelled" 'Warning'
         } else {
-            $successful = ($op.Result.Results | Where-Object { $_.Success }).Count
-            $failed = $op.Result.Results.Count - $successful
-            Write-Log "✓ Import complete: $successful succeeded, $failed failed" 'Success'
+            if ($op.Result -and $op.Result.Results) {
+                $successful = @($op.Result.Results | Where-Object { $_.Success }).Count
+                $failed = $op.Result.Results.Count - $successful
+                
+                if ($successful -gt 0 -and $failed -eq 0) {
+                    Write-Log "✓ All $successful package(s) installed successfully" 'Success'
+                } elseif ($successful -gt 0 -and $failed -gt 0) {
+                    Write-Log "⚠ Partial success: $successful installed, $failed failed" 'Warning'
+                } else {
+                    Write-Log "✗ All installations failed" 'Error'
+                }
+                
+                if ($failed -gt 0) {
+                    $failures = $op.Result.Results | Where-Object { -not $_.Success }
+                    Write-Log "" 'Info'
+                    Write-Log "Failed packages:" 'Error'
+                    foreach ($f in $failures) {
+                        Write-Log "  • $($f.Package)" 'Error'
+                    }
+                }
+            }
         }
+        
+        # Clear grid
+        $script:importExportPackages = @()
+        $importExportGrid.ItemsSource = $null
+        $importSelectionPanel.Visibility = 'Collapsed'
+        Write-Log "Installation complete" 'Info'
         Write-Log '═══════════════════════════════════════' 'Info'
     }
-
-    Start-RunspaceOperation -SyncHash $syncHash -WorkScript $importScript -OpArgs @{ FilePath = $filePath } -OnComplete $importComplete
+    
+    Start-RunspaceOperation -SyncHash $syncHash -WorkScript $installScript -OpArgs @{ Packages = $selected } -OnComplete $installComplete
 })
 
 Write-Log '═══════════════════════════════════════' 'Info'
-Write-Log 'Winget Application Manager' 'Success'
-Write-Log 'All improvements applied' 'Info'
+Write-Log 'Winget Application Manager v1.0' 'Success'
 Write-Log '═══════════════════════════════════════' 'Info'
+
+# Check WinGet availability
+$wingetStatus = Test-WinGetAvailability
+if (-not (Show-WinGetStatus -Status $wingetStatus)) {
+    # WinGet not available - exit
+    [void] $window.ShowDialog()
+    exit
+}
 
 [void] $window.ShowDialog()
