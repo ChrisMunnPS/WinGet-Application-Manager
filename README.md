@@ -211,13 +211,6 @@ The **Repair** button uses WinGet's built-in repair functionality to fix broken 
 - Repairs file associations
 - Works with MSI, MSIX, and EXE installers
 
-### 📁 Drag & Drop
-Simply **drag any JSON file** into the Import/Export tab:
-- Instant file path population
-- Automatic validation
-- Visual feedback
-- No more browsing for files!
-
 ### ✅ WinGet Validation
 At startup, the app:
 - Checks if WinGet is installed
