@@ -178,6 +178,30 @@ Old PC: Export → USB Drive → New PC: Import → Done!
 
 ---
 
+## 🐦‍🔥 Some Screenshots
+
+Main Page - Light Mode
+![Main Page – Light Mode](https://github.com/ChrisMunnPS/WinGet-Application-Manager/blob/main/Screenshots/Light%20Mode/1a%20-%20Main%20Page.png?raw=true)
+
+Main Page - Dark Mode
+![Main Page – Dark Mode](https://github.com/ChrisMunnPS/WinGet-Application-Manager/blob/main/Screenshots/Dark%20Mode/1a%20-%20Main%20Page.png?raw=true)
+
+![Import Selection - Light Mode](https://raw.githubusercontent.com/ChrisMunnPS/WinGet-Application-Manager/main/Screenshots/Light%20Mode/1c%20-%20Import%20Selection.png)
+
+![Update, Repair, Uninstall - Light Mode](https://raw.githubusercontent.com/ChrisMunnPS/WinGet-Application-Manager/main/Screenshots/Light%20Mode/2%20-%20Update%2C%20Repair%2C%20Uninstall.png)
+
+![Activity Log - Light Mode](https://raw.githubusercontent.com/ChrisMunnPS/WinGet-Application-Manager/main/Screenshots/Light%20Mode/4%20-%20Activity%20Log.png)
+
+![Import Selection - Dark Mode](https://raw.githubusercontent.com/ChrisMunnPS/WinGet-Application-Manager/main/Screenshots/Dark%20Mode/1c%20-%20Import%20Selection.png)
+
+![Update, Repair, Uninstall - Dark Mode](https://raw.githubusercontent.com/ChrisMunnPS/WinGet-Application-Manager/main/Screenshots/Dark%20Mode/2%20-%20Update%2C%20Repair%2C%20Uninstall.png)
+
+![Activity Log - Dark Mode](https://raw.githubusercontent.com/ChrisMunnPS/WinGet-Application-Manager/main/Screenshots/Dark%20Mode/4%20-%20Activity%20Log.png)
+
+---
+
+
+
 ## 🎯 Key Features Explained
 
 ### 🔧 Repair Feature
