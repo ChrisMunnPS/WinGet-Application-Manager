@@ -136,15 +136,15 @@ $script:themes = @{
         WindowBg = '#1E1E1E'; SurfaceBg = '#252526'; AccentPrimary = '#0078D4'
         TextPrimary = '#F0F0F0'; TextHint = '#9E9E9E'; BorderColor = '#3F3F46'
         LogBackground = '#1E1E1E'; LogBorder = '#3F3F46'
-        SuccessColor = '#66BB6A'; WarningColor = '#FFCA28'; ErrorColor = '#EF5350'
-        InfoColor = '#E0E0E0'; InstallColor = '#00BCD4'
+        SuccessColor = '#4CAF50'; WarningColor = '#FFA726'; ErrorColor = '#FF5252'
+        InfoColor = '#FFFFFF'; InstallColor = '#26C6DA'
     }
     Light = @{
         WindowBg = '#FFFFFF'; SurfaceBg = '#F5F5F5'; AccentPrimary = '#0078D4'
-        TextPrimary = '#1E1E1E'; TextHint = '#757575'; BorderColor = '#D0D0D0'
+        TextPrimary = '#000000'; TextHint = '#616161'; BorderColor = '#D0D0D0'
         LogBackground = '#FFFFFF'; LogBorder = '#D0D0D0'
-        SuccessColor = '#1B5E20'; WarningColor = '#BF360C'; ErrorColor = '#B71C1C'
-        InfoColor = '#212121'; InstallColor = '#006064'
+        SuccessColor = '#0D5500'; WarningColor = '#A63000'; ErrorColor = '#C20000'
+        InfoColor = '#000000'; InstallColor = '#004D40'
     }
 }
 
@@ -232,6 +232,28 @@ function Set-Theme {
     if ($aboutLink2) { $aboutLink2.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom($t.TextPrimary) }
     if ($aboutLink3) { $aboutLink3.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom($t.TextPrimary) }
     if ($aboutBorder) { $aboutBorder.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom($t.BorderColor) }
+    if ($changelogBorder) { $changelogBorder.BorderBrush = [System.Windows.Media.BrushConverter]::new().ConvertFrom($t.BorderColor) }
+    
+    # Color all TextBlocks in AboutContent (for changelog items)
+    if ($aboutContent) {
+        $stack = $aboutContent.Content
+        if ($stack -is [System.Windows.Controls.StackPanel]) {
+            foreach ($child in $stack.Children) {
+                if ($child -is [System.Windows.Controls.Border]) {
+                    $borderContent = $child.Child
+                    if ($borderContent -is [System.Windows.Controls.StackPanel]) {
+                        foreach ($item in $borderContent.Children) {
+                            if ($item -is [System.Windows.Controls.TextBlock]) {
+                                $item.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom($t.TextPrimary)
+                            }
+                        }
+                    }
+                } elseif ($child -is [System.Windows.Controls.TextBlock]) {
+                    $child.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFrom($t.TextPrimary)
+                }
+            }
+        }
+    }
     
     # Hyperlink colors
     foreach ($link in @($hyperlinkGitHub, $hyperlinkWebsite, $hyperlinkLinkedIn)) {
@@ -269,6 +291,9 @@ function Set-UIBusy {
     if ($btnSelectNone) { $btnSelectNone.IsEnabled = -not $Busy }
     if ($btnSearch) { $btnSearch.IsEnabled = -not $Busy }
     if ($btnInstallSelected) { $btnInstallSelected.IsEnabled = -not $Busy }
+    if ($btnImportSelectAll) { $btnImportSelectAll.IsEnabled = -not $Busy }
+    if ($btnImportDeselectAll) { $btnImportDeselectAll.IsEnabled = -not $Busy }
+    if ($btnInstallChecked) { $btnInstallChecked.IsEnabled = -not $Busy }
     
     if ($btnCancel) {
         $btnCancel.Visibility = if ($Busy) { 'Visible' } else { 'Collapsed' }
@@ -427,12 +452,12 @@ $xaml = @"
                         </Grid>
                         
                         <!-- Selection buttons for import grid -->
-                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12" x:Name="ImportSelectionPanel" Visibility="Collapsed">
-                            <TextBlock Text="Select packages to install:" FontSize="13" VerticalAlignment="Center" Margin="0,0,16,0"/>
-                            <Button x:Name="BtnImportSelectAll" Content="☑ Select All" Width="100" Height="32" Margin="0,0,8,0" FontSize="12"/>
-                            <Button x:Name="BtnImportDeselectAll" Content="☐ Deselect All" Width="110" Height="32" Margin="0,0,16,0" FontSize="12"/>
-                            <Button x:Name="BtnInstallChecked" Content="⬇ Install Checked" Width="140" Height="32" FontSize="13" FontWeight="SemiBold"/>
-                        </StackPanel>
+                        <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12" x:Name="ImportSelectionPanel" Visibility="Collapsed">
+                            <TextBlock Text="Select packages:" FontSize="13" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <Button x:Name="BtnImportSelectAll" Content="☑ All" Width="70" Height="32" Margin="0,0,6,0" FontSize="12"/>
+                            <Button x:Name="BtnImportDeselectAll" Content="☐ None" Width="70" Height="32" Margin="0,0,6,0" FontSize="12"/>
+                            <Button x:Name="BtnInstallChecked" Content="⬇ Install" Width="90" Height="32" Margin="0,0,0,0" FontSize="12" FontWeight="SemiBold"/>
+                        </WrapPanel>
                         
                         <DataGrid x:Name="ImportExportGrid" Grid.Row="3" AutoGenerateColumns="False" CanUserAddRows="False" 
                                   HeadersVisibility="Column" GridLinesVisibility="Horizontal" SelectionMode="Extended" IsReadOnly="False"
@@ -532,10 +557,82 @@ $xaml = @"
                     <ScrollViewer x:Name="AboutContent" VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="40,40,40,40" MaxWidth="700">
                             <TextBlock x:Name="AboutTitle" Text="WinGet Application Manager" FontSize="32" FontWeight="Bold" Margin="0,0,0,8"/>
-                            <TextBlock x:Name="AboutVersion" Text="Version 1.0.0" FontSize="16" Opacity="0.7" Margin="0,0,0,32"/>
+                            <TextBlock x:Name="AboutVersion" Text="Version 1.7.2" FontSize="16" Opacity="0.7" Margin="0,0,0,32"/>
                             
                             <TextBlock x:Name="AboutDescription" Text="A modern GUI for managing Windows applications with WinGet."
                                        FontSize="14" TextWrapping="Wrap" Margin="0,0,0,32" LineHeight="22"/>
+                            
+                            <Border x:Name="ChangelogBorder" BorderThickness="0,1,0,0" Padding="0,24,0,0" Margin="0,0,0,24">
+                                <StackPanel>
+                                    <TextBlock Text="📋 Changelog" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.7.2" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Improved: Refresh now clears all checkmarks BEFORE scanning for updates" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved: Update confirmation shows actual package names (up to 10)" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Visual feedback: See checkmarks clear, then updates auto-check after scan" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.7.1" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Restored: Packages with updates are now auto-checked on refresh" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved: Grid completely clears before loading new data" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Workflow: Refresh → updates auto-checked → Update → Refresh → new updates auto-checked" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.7.0" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Changed: Refresh now completely clears grid and unchecks ALL packages" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Removed: Auto-selection of packages with updates after refresh" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Removed: Selection restoration after refresh (fresh state every time)" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Simplified: Update confirmation dialog (no force flag explanation)" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.6.1" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Fixed: Removed unused variable causing PSScriptAnalyzer warning" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Fixed: Changed event handler parameter to avoid automatic variable warning" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.6.0" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Added --force flag to winget upgrade for better update reliability" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Fixed: Refresh now unchecks all packages instead of auto-selecting updates" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved: Dark mode activity log colors for better readability" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved: Update confirmation dialog explains --force flag usage" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.5.1" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Fixed: Import/Export grid now properly clears before loading new packages" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Fixed: Grid clears after installation completes for better visual feedback" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Fixed: Refresh button properly clears Import/Export grid" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved: Light mode text colors for better readability" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.5.0" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Import button now clears previous grid before loading new packages" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Refresh button now clears Import/Export grid" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Removed separate Clear Grid button (auto-clear on Import/Refresh)" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Fixed About tab text colors for dark mode readability" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.4.0" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Added Clear Grid button to Import/Export tab" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved workflow control for package selection" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.3.0" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Fixed all PSScriptAnalyzer warnings" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Renamed functions to use approved PowerShell verbs" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Removed unused variables for cleaner code" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.2.0" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Added Select All / Deselect All buttons" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Added Install Checked button for selective installation" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Removed drag and drop (not reliable in PowerShell WPF)" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.1.0" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Added checkbox column to Import/Export grid" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• All packages now checked by default on import" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Added Repair button with troubleshooting guidance" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.0.0" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Initial release" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Package management (install, update, uninstall)" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Import/Export with JSON files" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Activity log with export functionality" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Dark/Light themes" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• 100+ official WinGet error codes" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• WinGet validation at startup" FontSize="13" Margin="16,0,0,16"/>
+                                </StackPanel>
+                            </Border>
                             
                             <Border x:Name="AboutBorder" BorderThickness="0,1,0,0" Padding="0,24,0,0" Margin="0,0,0,24">
                                 <StackPanel>
@@ -648,6 +745,7 @@ $aboutTitle = $window.FindName('AboutTitle')
 $aboutVersion = $window.FindName('AboutVersion')
 $aboutDescription = $window.FindName('AboutDescription')
 $aboutBorder = $window.FindName('AboutBorder')
+$changelogBorder = $window.FindName('ChangelogBorder')
 $aboutAuthorLabel = $window.FindName('AboutAuthorLabel')
 $aboutAuthor = $window.FindName('AboutAuthor')
 $aboutLinksLabel = $window.FindName('AboutLinksLabel')
@@ -662,7 +760,7 @@ $hyperlinkLinkedIn = $window.FindName('HyperlinkLinkedIn')
 $window.AddHandler(
     [System.Windows.Documents.Hyperlink]::RequestNavigateEvent,
     [System.Windows.RoutedEventHandler]{
-        param($_, $e)
+        param($s, $e)
         try {
             Start-Process $e.Uri.AbsoluteUri
             $e.Handled = $true
@@ -894,6 +992,21 @@ function Update-PackageList {
         return
     }
     
+    # Clear all checkmarks in Package Manager grid first
+    if ($script:installedPackages -and $script:installedPackages.Count -gt 0) {
+        foreach ($pkg in $script:installedPackages) {
+            $pkg.Selected = $false
+        }
+        $packageManagerGrid.Items.Refresh()
+    }
+    
+    # Clear Import/Export grid when refreshing Package Manager
+    $script:importExportPackages = @()
+    $importExportGrid.ItemsSource = $null
+    $importSelectionPanel.Visibility = 'Collapsed'
+    # Force immediate UI update
+    [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Render, [Action]{})
+    
     $script:isRefreshing = $true
     Set-UIBusy -Busy $true -StatusText 'Loading packages...'
     Write-Log 'Refreshing installed packages...' 'Info'
@@ -980,7 +1093,7 @@ function Update-PackageList {
                     $status = if ($available) { 'Update' } else { 'Installed' }
                     
                     $packages += [PSCustomObject]@{
-                        Selected = ($available -ne '')
+                        Selected = $false  # Don't auto-select on refresh
                         Name = $name
                         Id = $id
                         Version = $version
@@ -1037,25 +1150,20 @@ function Update-PackageList {
         
         if ($op.Packages) {
             try {
-                # Save current selections before replacing data
-                $previousSelections = @{}
-                if ($script:installedPackages) {
-                    foreach ($pkg in $script:installedPackages) {
-                        if ($pkg.Selected) {
-                            $previousSelections[$pkg.Id] = $true
-                        }
-                    }
-                }
+                # Clear previous data completely
+                $script:installedPackages = @()
+                $packageManagerGrid.ItemsSource = $null
                 
+                # Assign new packages
                 $script:installedPackages = $op.Packages | Sort-Object -Property Name
                 $script:currentView = 'installed'
                 
-                # Restore previous selections (except packages with updates - those auto-select)
+                # Auto-select packages with updates
                 foreach ($pkg in $script:installedPackages) {
                     if ($pkg.Status -eq 'Update') {
-                        $pkg.Selected = $true  # Auto-select packages with updates
-                    } elseif ($previousSelections.ContainsKey($pkg.Id)) {
-                        $pkg.Selected = $true  # Restore previous selection
+                        $pkg.Selected = $true  # Auto-check packages with available updates
+                    } else {
+                        $pkg.Selected = $false
                     }
                 }
                 
@@ -1243,8 +1351,18 @@ $btnUpdateSelected.Add_Click({
         return
     }
     
+    # Build list of package names for confirmation
+    $packageNames = ($selected | ForEach-Object { "  • $($_.Name)" }) -join "`n"
+    $message = if ($selected.Count -le 10) {
+        "Update the following $($selected.Count) package(s)?`n`n$packageNames"
+    } else {
+        # For many packages, show first 8 and indicate more
+        $firstEight = ($selected | Select-Object -First 8 | ForEach-Object { "  • $($_.Name)" }) -join "`n"
+        "Update $($selected.Count) packages?`n`n$firstEight`n  • ... and $($selected.Count - 8) more"
+    }
+    
     $result = [System.Windows.MessageBox]::Show(
-        "Update $($selected.Count) package(s)?",
+        $message,
         'Update Selected',
         [System.Windows.MessageBoxButton]::YesNo,
         [System.Windows.MessageBoxImage]::Question
@@ -1373,7 +1491,7 @@ $btnUpdateSelected.Add_Click({
                 }
                 
                 # Update with proper flags including --silent to prevent GUI popups
-                $out = & winget upgrade --id $pkg.Id --silent --accept-source-agreements --accept-package-agreements 2>&1
+                $out = & winget upgrade --id $pkg.Id --force --silent --accept-source-agreements --accept-package-agreements 2>&1
                 $exitCode = $LASTEXITCODE
                 $outputText = ($out | Out-String).Trim()
                 
@@ -2252,6 +2370,13 @@ $btnExport.Add_Click({
 
 # Import Button - Load JSON and show selection grid
 $btnImport.Add_Click({
+    # Clear any existing packages from grid first
+    $script:importExportPackages = @()
+    $importExportGrid.ItemsSource = $null
+    $importSelectionPanel.Visibility = 'Collapsed'
+    # Force immediate UI update
+    [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Windows.Threading.DispatcherPriority]::Render, [Action]{})
+    
     $filePath = $txtFilePath.Text.Trim()
 
     if (-not $filePath) {
@@ -2312,7 +2437,7 @@ $btnImport.Add_Click({
         Write-Log '═══════════════════════════════════════' 'Info'
         Write-Log "📦 Loaded $($packages.Count) packages from JSON" 'Success'
         Write-Log "✓ All $($packages.Count) packages selected by default" 'Info'
-        Write-Log "ℹ Use Select/Deselect buttons or click 'Install Checked'" 'Info'
+        Write-Log "ℹ Selection buttons: ☑ All | ☐ None | ⬇ Install" 'Info'
         Write-Log '═══════════════════════════════════════' 'Info'
         
     } catch {
@@ -2487,19 +2612,22 @@ $btnInstallChecked.Add_Click({
             }
         }
         
-        # Clear grid
+        # Clear grid after installation
         $script:importExportPackages = @()
         $importExportGrid.ItemsSource = $null
+        $importExportGrid.Items.Refresh()
         $importSelectionPanel.Visibility = 'Collapsed'
-        Write-Log "Installation complete" 'Info'
+        Write-Log "✓ Grid cleared - ready for next import" 'Success'
         Write-Log '═══════════════════════════════════════' 'Info'
     }
     
     Start-RunspaceOperation -SyncHash $syncHash -WorkScript $installScript -OpArgs @{ Packages = $selected } -OnComplete $installComplete
 })
 
+# Clear Grid button - clears imported packages from grid
+
 Write-Log '═══════════════════════════════════════' 'Info'
-Write-Log 'Winget Application Manager v1.0' 'Success'
+Write-Log 'Winget Application Manager v1.7.2' 'Success'
 Write-Log '═══════════════════════════════════════' 'Info'
 
 # Check WinGet availability
