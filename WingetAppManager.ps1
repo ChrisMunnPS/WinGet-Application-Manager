@@ -557,7 +557,7 @@ $xaml = @"
                     <ScrollViewer x:Name="AboutContent" VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="40,40,40,40" MaxWidth="700">
                             <TextBlock x:Name="AboutTitle" Text="WinGet Application Manager" FontSize="32" FontWeight="Bold" Margin="0,0,0,8"/>
-                            <TextBlock x:Name="AboutVersion" Text="Version 1.7.2" FontSize="16" Opacity="0.7" Margin="0,0,0,32"/>
+                            <TextBlock x:Name="AboutVersion" Text="Version 1.8.1" FontSize="16" Opacity="0.7" Margin="0,0,0,32"/>
                             
                             <TextBlock x:Name="AboutDescription" Text="A modern GUI for managing Windows applications with WinGet."
                                        FontSize="14" TextWrapping="Wrap" Margin="0,0,0,32" LineHeight="22"/>
@@ -565,6 +565,17 @@ $xaml = @"
                             <Border x:Name="ChangelogBorder" BorderThickness="0,1,0,0" Padding="0,24,0,0" Margin="0,0,0,24">
                                 <StackPanel>
                                     <TextBlock Text="📋 Changelog" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.8.1" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Improved: Warning dialog now explains need to restart app after Windows Terminal update" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved: Activity log now clearly states to restart app to see update status" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Fixed: Clarified that clicking Refresh immediately may show update still needed (timing issue)" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.8.0" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• New: Windows Terminal can now be updated even when running from it" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• New: Detects Windows Terminal and launches update in separate process" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• New: Warning dialog with options when Windows Terminal update detected" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved: Windows Terminal updates last to minimize disruption" FontSize="13" Margin="16,0,0,16"/>
                                     
                                     <TextBlock Text="Version 1.7.2" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
                                     <TextBlock Text="• Improved: Refresh now clears all checkmarks BEFORE scanning for updates" FontSize="13" Margin="16,0,0,4"/>
@@ -1351,6 +1362,55 @@ $btnUpdateSelected.Add_Click({
         return
     }
     
+    # Check for Windows Terminal in selection
+    $windowsTerminal = $selected | Where-Object { $_.Id -match 'Microsoft\.WindowsTerminal' }
+    
+    if ($windowsTerminal) {
+        # Detect if running in Windows Terminal
+        $isInWindowsTerminal = $false
+        try {
+            $parentProcess = Get-Process -Id $PID -ErrorAction Stop
+            while ($parentProcess) {
+                if ($parentProcess.ProcessName -match 'WindowsTerminal|wt') {
+                    $isInWindowsTerminal = $true
+                    break
+                }
+                if ($parentProcess.Parent) {
+                    $parentProcess = Get-Process -Id $parentProcess.Parent.Id -ErrorAction Stop
+                } else {
+                    break
+                }
+            }
+        } catch {
+            # Can't detect - assume we might be in Windows Terminal
+            $isInWindowsTerminal = $true
+        }
+        
+        if ($isInWindowsTerminal) {
+            $wtWarning = [System.Windows.MessageBox]::Show(
+                "⚠️ Windows Terminal Update Detected!`n`nUpdating Windows Terminal will close this application because you're running it in Windows Terminal.`n`nOptions:`n• Click YES to update Windows Terminal LAST (other packages update first, then Windows Terminal update launches in a separate window)`n• Click NO to skip Windows Terminal and update only the other packages`n• Click CANCEL to abort all updates`n`n⚠️ IMPORTANT: After the update completes, RESTART this app to see Windows Terminal as updated. If you click Refresh immediately, it may still show as needing an update because the separate update process takes time to complete.`n`nRecommendation: Click YES, let all updates complete, then restart this app.",
+                'Windows Terminal Warning',
+                [System.Windows.MessageBoxButton]::YesNoCancel,
+                [System.Windows.MessageBoxImage]::Warning
+            )
+            
+            if ($wtWarning -eq [System.Windows.MessageBoxResult]::Cancel) {
+                return  # Abort all updates
+            } elseif ($wtWarning -eq [System.Windows.MessageBoxResult]::No) {
+                # Remove Windows Terminal from selection
+                $selected = $selected | Where-Object { $_.Id -notmatch 'Microsoft\.WindowsTerminal' }
+                Write-Log "⚠️ Skipping Windows Terminal update (would close application)" 'Warning'
+                
+                if ($selected.Count -eq 0) {
+                    [System.Windows.MessageBox]::Show('Only Windows Terminal was selected. Update cancelled.', 'No Updates', 
+                        [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+                    return
+                }
+            }
+            # If YES, Windows Terminal will be updated last (handled below)
+        }
+    }
+    
     # Build list of package names for confirmation
     $packageNames = ($selected | ForEach-Object { "  • $($_.Name)" }) -join "`n"
     $message = if ($selected.Count -le 10) {
@@ -1369,6 +1429,11 @@ $btnUpdateSelected.Add_Click({
     )
     
     if ($result -ne [System.Windows.MessageBoxResult]::Yes) { return }
+    
+    # Move Windows Terminal to end of list if present
+    if ($windowsTerminal) {
+        $selected = @($selected | Where-Object { $_.Id -notmatch 'Microsoft\.WindowsTerminal' }) + @($windowsTerminal)
+    }
     
     Write-Log '═══════════════════════════════════════' 'Info'
     Write-Log "Updating $($selected.Count) packages..." 'Info'
@@ -1484,7 +1549,43 @@ $btnUpdateSelected.Add_Click({
                     $syncHash.WriteLog.Invoke("[$($syncHash._progress)] Updating $($syncHash._currentApp)...", 'Info')
                 })
                 
-                # Try to close the application first
+                # Special handling for Windows Terminal
+                if ($pkg.Id -match 'Microsoft\.WindowsTerminal') {
+                    # Create a detached process to update Windows Terminal
+                    $updateScript = @"
+Start-Sleep -Seconds 3
+Write-Host 'Updating Windows Terminal...'
+`$out = & winget upgrade --id $($pkg.Id) --force --silent --accept-source-agreements --accept-package-agreements 2>&1
+if (`$LASTEXITCODE -eq 0) {
+    Write-Host 'Windows Terminal updated successfully!'
+} else {
+    Write-Host "Windows Terminal update failed with exit code: `$LASTEXITCODE"
+    Write-Host `$out
+}
+Read-Host 'Press Enter to close'
+"@
+                    
+                    $scriptPath = [System.IO.Path]::Combine($env:TEMP, "UpdateWindowsTerminal_$(Get-Date -Format 'yyyyMMdd_HHmmss').ps1")
+                    Set-Content -Path $scriptPath -Value $updateScript -Encoding UTF8
+                    
+                    # Launch in a completely separate process (not child of Windows Terminal)
+                    Start-Process powershell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File `"$scriptPath`"" -WindowStyle Normal
+                    
+                    $syncHash.Dispatcher.Invoke([Action]{
+                        $syncHash.WriteLog.Invoke("  ⚠️ Windows Terminal update launched in separate window", 'Warning')
+                        $syncHash.WriteLog.Invoke("  ⚠️ This application will close when Windows Terminal updates", 'Warning')
+                        $syncHash.WriteLog.Invoke("  ℹ️ The update will continue in the new window", 'Info')
+                        $syncHash.WriteLog.Invoke("  ℹ️ Check the new window for update status", 'Info')
+                        $syncHash.WriteLog.Invoke("  ⚠️ IMPORTANT: Restart this app after the update to see Windows Terminal as updated", 'Warning')
+                        $syncHash.WriteLog.Invoke("  ⚠️ Clicking Refresh immediately may still show update needed (separate process takes time)", 'Warning')
+                    })
+                    
+                    # Mark as "succeeded" so we don't try to process it normally
+                    $results += [PSCustomObject]@{ Package = $pkg.Name; Success = $true }
+                    continue
+                }
+                
+                # Try to close the application first (for non-Windows Terminal apps)
                 $wasClosed = Close-Application -PackageName $pkg.Name
                 if ($wasClosed) {
                     Start-Sleep -Seconds 2  # Give it time to fully close
@@ -2627,7 +2728,7 @@ $btnInstallChecked.Add_Click({
 # Clear Grid button - clears imported packages from grid
 
 Write-Log '═══════════════════════════════════════' 'Info'
-Write-Log 'Winget Application Manager v1.7.2' 'Success'
+Write-Log 'Winget Application Manager v1.8.1' 'Success'
 Write-Log '═══════════════════════════════════════' 'Info'
 
 # Check WinGet availability
