@@ -557,7 +557,7 @@ $xaml = @"
                     <ScrollViewer x:Name="AboutContent" VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="40,40,40,40" MaxWidth="700">
                             <TextBlock x:Name="AboutTitle" Text="WinGet Application Manager" FontSize="32" FontWeight="Bold" Margin="0,0,0,8"/>
-                            <TextBlock x:Name="AboutVersion" Text="Version 1.8.1" FontSize="16" Opacity="0.7" Margin="0,0,0,32"/>
+                            <TextBlock x:Name="AboutVersion" Text="Version 1.9.0" FontSize="16" Opacity="0.7" Margin="0,0,0,32"/>
                             
                             <TextBlock x:Name="AboutDescription" Text="A modern GUI for managing Windows applications with WinGet."
                                        FontSize="14" TextWrapping="Wrap" Margin="0,0,0,32" LineHeight="22"/>
@@ -565,6 +565,17 @@ $xaml = @"
                             <Border x:Name="ChangelogBorder" BorderThickness="0,1,0,0" Padding="0,24,0,0" Margin="0,0,0,24">
                                 <StackPanel>
                                     <TextBlock Text="📋 Changelog" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.9.0" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• New: PowerShell can now be updated even when running from it" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• New: Detects PowerShell updates and launches in separate process" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• New: Warning dialog with options when PowerShell update detected" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved: PowerShell updates last (after Windows Terminal if both present)" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.8.2" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Fixed: 'Get-WinGetErrorDescription' not recognized error in runspace operations" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Fixed: Added error description function to update, repair, and install script blocks" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved: Error messages now show properly in all operations (update, install, repair)" FontSize="13" Margin="16,0,0,16"/>
                                     
                                     <TextBlock Text="Version 1.8.1" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
                                     <TextBlock Text="• Improved: Warning dialog now explains need to restart app after Windows Terminal update" FontSize="13" Margin="16,0,0,4"/>
@@ -1411,6 +1422,50 @@ $btnUpdateSelected.Add_Click({
         }
     }
     
+    # Check for PowerShell in selection
+    $powerShell = $selected | Where-Object { $_.Id -match 'Microsoft\.PowerShell' }
+    
+    if ($powerShell) {
+        # Detect if running in PowerShell
+        $isInPowerShell = $false
+        $psVersion = ""
+        try {
+            $currentProcess = Get-Process -Id $PID -ErrorAction Stop
+            if ($currentProcess.ProcessName -match 'powershell|pwsh') {
+                $isInPowerShell = $true
+                $psVersion = if ($currentProcess.ProcessName -match 'pwsh') { "PowerShell 7+" } else { "PowerShell 5.x" }
+            }
+        } catch {
+            # Can't detect - assume we might be in PowerShell
+            $isInPowerShell = $true
+            $psVersion = "PowerShell"
+        }
+        
+        if ($isInPowerShell) {
+            $psWarning = [System.Windows.MessageBox]::Show(
+                "⚠️ PowerShell Update Detected!`n`nUpdating PowerShell will close this application because you're running it in $psVersion.`n`nOptions:`n• Click YES to update PowerShell LAST (other packages update first, then PowerShell update launches in a separate window)`n• Click NO to skip PowerShell and update only the other packages`n• Click CANCEL to abort all updates`n`n⚠️ IMPORTANT: After the update completes, RESTART this app to see PowerShell as updated. If you click Refresh immediately, it may still show as needing an update because the separate update process takes time to complete.`n`nRecommendation: Click YES, let all updates complete, then restart this app.",
+                'PowerShell Warning',
+                [System.Windows.MessageBoxButton]::YesNoCancel,
+                [System.Windows.MessageBoxImage]::Warning
+            )
+            
+            if ($psWarning -eq [System.Windows.MessageBoxResult]::Cancel) {
+                return  # Abort all updates
+            } elseif ($psWarning -eq [System.Windows.MessageBoxResult]::No) {
+                # Remove PowerShell from selection
+                $selected = $selected | Where-Object { $_.Id -notmatch 'Microsoft\.PowerShell' }
+                Write-Log "⚠️ Skipping PowerShell update (would close application)" 'Warning'
+                
+                if ($selected.Count -eq 0) {
+                    [System.Windows.MessageBox]::Show('Only PowerShell was selected. Update cancelled.', 'No Updates', 
+                        [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+                    return
+                }
+            }
+            # If YES, PowerShell will be updated last (handled below)
+        }
+    }
+    
     # Build list of package names for confirmation
     $packageNames = ($selected | ForEach-Object { "  • $($_.Name)" }) -join "`n"
     $message = if ($selected.Count -le 10) {
@@ -1430,9 +1485,19 @@ $btnUpdateSelected.Add_Click({
     
     if ($result -ne [System.Windows.MessageBoxResult]::Yes) { return }
     
-    # Move Windows Terminal to end of list if present
-    if ($windowsTerminal) {
-        $selected = @($selected | Where-Object { $_.Id -notmatch 'Microsoft\.WindowsTerminal' }) + @($windowsTerminal)
+    # Move terminal/shell packages to end of list (PowerShell last if both present)
+    if ($windowsTerminal -or $powerShell) {
+        $regularPackages = $selected | Where-Object { $_.Id -notmatch 'Microsoft\.WindowsTerminal|Microsoft\.PowerShell' }
+        $terminalPackages = @()
+        
+        if ($windowsTerminal) {
+            $terminalPackages += $windowsTerminal
+        }
+        if ($powerShell) {
+            $terminalPackages += $powerShell  # PowerShell last
+        }
+        
+        $selected = @($regularPackages) + @($terminalPackages)
     }
     
     Write-Log '═══════════════════════════════════════' 'Info'
@@ -1523,6 +1588,46 @@ $btnUpdateSelected.Add_Click({
             return $closed
         }
         
+        # WinGet error codes (for detailed error descriptions)
+        $wingetErrors = @{
+            0 = 'Success'
+            -1978335231 = 'Internal Error'
+            -1978335224 = 'Downloading installer failed'
+            -1978335216 = 'None of the installers are applicable for the current system'
+            -1978335215 = 'The installer file''s hash does not match the manifest'
+            -1978335214 = 'The source name does not exist'
+            -1978335212 = 'No packages found'
+            -1978335189 = 'No applicable update found'
+            -1978335184 = 'Running uninstall command failed'
+            -1978335153 = 'The upgrade version is not newer than the installed version'
+            -1978335135 = 'Found at least one version of the package installed'
+            -1978334975 = 'Application is currently running. Exit the application then try again.'
+            -1978334974 = 'Another installation is already in progress. Try again later.'
+            -1978334972 = 'This package has a dependency missing from your system.'
+            -1978334971 = 'There''s no more space on your PC. Make space, then try again.'
+            -1978334969 = 'This application requires internet connectivity. Connect to a network then try again.'
+            -1978334964 = 'You cancelled the installation.'
+            -1978334963 = 'Another version of this application is already installed.'
+        }
+        
+        # Helper to get error description
+        function Get-WinGetErrorDescription {
+            param([int]$ExitCode)
+            
+            if ($wingetErrors.ContainsKey($ExitCode)) {
+                return $wingetErrors[$ExitCode]
+            }
+            
+            # Generic descriptions based on code ranges
+            if ($ExitCode -ge -1978335231 -and $ExitCode -le -1978335091) {
+                return "WinGet error (code: $ExitCode)"
+            } elseif ($ExitCode -ge -1978334975 -and $ExitCode -le -1978334955) {
+                return "Installation error (code: $ExitCode)"
+            } else {
+                return "Unknown error (code: $ExitCode)"
+            }
+        }
+        
         try {
             $prevEncoding = $null
             try {
@@ -1585,7 +1690,43 @@ Read-Host 'Press Enter to close'
                     continue
                 }
                 
-                # Try to close the application first (for non-Windows Terminal apps)
+                # Special handling for PowerShell
+                if ($pkg.Id -match 'Microsoft\.PowerShell') {
+                    # Create a detached process to update PowerShell
+                    $updateScript = @"
+Start-Sleep -Seconds 3
+Write-Host 'Updating PowerShell...'
+`$out = & winget upgrade --id $($pkg.Id) --force --silent --accept-source-agreements --accept-package-agreements 2>&1
+if (`$LASTEXITCODE -eq 0) {
+    Write-Host 'PowerShell updated successfully!'
+} else {
+    Write-Host "PowerShell update failed with exit code: `$LASTEXITCODE"
+    Write-Host `$out
+}
+Read-Host 'Press Enter to close'
+"@
+                    
+                    $scriptPath = [System.IO.Path]::Combine($env:TEMP, "UpdatePowerShell_$(Get-Date -Format 'yyyyMMdd_HHmmss').ps1")
+                    Set-Content -Path $scriptPath -Value $updateScript -Encoding UTF8
+                    
+                    # Launch in a completely separate process (not child of current PowerShell)
+                    Start-Process powershell.exe -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File `"$scriptPath`"" -WindowStyle Normal
+                    
+                    $syncHash.Dispatcher.Invoke([Action]{
+                        $syncHash.WriteLog.Invoke("  ⚠️ PowerShell update launched in separate window", 'Warning')
+                        $syncHash.WriteLog.Invoke("  ⚠️ This application will close when PowerShell updates", 'Warning')
+                        $syncHash.WriteLog.Invoke("  ℹ️ The update will continue in the new window", 'Info')
+                        $syncHash.WriteLog.Invoke("  ℹ️ Check the new window for update status", 'Info')
+                        $syncHash.WriteLog.Invoke("  ⚠️ IMPORTANT: Restart this app after the update to see PowerShell as updated", 'Warning')
+                        $syncHash.WriteLog.Invoke("  ⚠️ Clicking Refresh immediately may still show update needed (separate process takes time)", 'Warning')
+                    })
+                    
+                    # Mark as "succeeded" so we don't try to process it normally
+                    $results += [PSCustomObject]@{ Package = $pkg.Name; Success = $true }
+                    continue
+                }
+                
+                # Try to close the application first (for non-terminal apps)
                 $wasClosed = Close-Application -PackageName $pkg.Name
                 if ($wasClosed) {
                     Start-Sleep -Seconds 2  # Give it time to fully close
@@ -2041,6 +2182,36 @@ $btnRepairSelected.Add_Click({
     $repairScript = {
         $packages = $opArgs.Packages
         $results = @()
+        
+        # WinGet error codes (for detailed error descriptions)
+        $wingetErrors = @{
+            0 = 'Success'
+            -1978335231 = 'Internal Error'
+            -1978335224 = 'Downloading installer failed'
+            -1978335189 = 'No applicable update found'
+            -1978335110 = 'Repair operation is not applicable.'
+            -1978335109 = 'Repair operation failed.'
+            -1978335108 = 'The installer technology in use doesn''t support repair.'
+            -1978334975 = 'Application is currently running. Exit the application then try again.'
+            -1978334974 = 'Another installation is already in progress. Try again later.'
+        }
+        
+        # Helper to get error description
+        function Get-WinGetErrorDescription {
+            param([int]$ExitCode)
+            
+            if ($wingetErrors.ContainsKey($ExitCode)) {
+                return $wingetErrors[$ExitCode]
+            }
+            
+            if ($ExitCode -ge -1978335231 -and $ExitCode -le -1978335091) {
+                return "WinGet error (code: $ExitCode)"
+            } elseif ($ExitCode -ge -1978334975 -and $ExitCode -le -1978334955) {
+                return "Installation error (code: $ExitCode)"
+            } else {
+                return "Unknown error (code: $ExitCode)"
+            }
+        }
         
         try {
             $prevEncoding = $null
@@ -2617,6 +2788,39 @@ $btnInstallChecked.Add_Click({
         $packages = $opArgs.Packages
         $results = @()
         
+        # WinGet error codes (for detailed error descriptions)
+        $wingetErrors = @{
+            0 = 'Success'
+            -1978335231 = 'Internal Error'
+            -1978335224 = 'Downloading installer failed'
+            -1978335216 = 'None of the installers are applicable for the current system'
+            -1978335215 = 'The installer file''s hash does not match the manifest'
+            -1978335212 = 'No packages found'
+            -1978335135 = 'Found at least one version of the package installed'
+            -1978334975 = 'Application is currently running. Exit the application then try again.'
+            -1978334974 = 'Another installation is already in progress. Try again later.'
+            -1978334972 = 'This package has a dependency missing from your system.'
+            -1978334971 = 'There''s no more space on your PC. Make space, then try again.'
+            -1978334963 = 'Another version of this application is already installed.'
+        }
+        
+        # Helper to get error description
+        function Get-WinGetErrorDescription {
+            param([int]$ExitCode)
+            
+            if ($wingetErrors.ContainsKey($ExitCode)) {
+                return $wingetErrors[$ExitCode]
+            }
+            
+            if ($ExitCode -ge -1978335231 -and $ExitCode -le -1978335091) {
+                return "WinGet error (code: $ExitCode)"
+            } elseif ($ExitCode -ge -1978334975 -and $ExitCode -le -1978334955) {
+                return "Installation error (code: $ExitCode)"
+            } else {
+                return "Unknown error (code: $ExitCode)"
+            }
+        }
+        
         try {
             $prevEncoding = $null
             try {
@@ -2728,7 +2932,7 @@ $btnInstallChecked.Add_Click({
 # Clear Grid button - clears imported packages from grid
 
 Write-Log '═══════════════════════════════════════' 'Info'
-Write-Log 'Winget Application Manager v1.8.1' 'Success'
+Write-Log 'Winget Application Manager v1.9.0' 'Success'
 Write-Log '═══════════════════════════════════════' 'Info'
 
 # Check WinGet availability
