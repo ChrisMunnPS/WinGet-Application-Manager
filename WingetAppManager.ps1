@@ -557,7 +557,7 @@ $xaml = @"
                     <ScrollViewer x:Name="AboutContent" VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="40,40,40,40" MaxWidth="700">
                             <TextBlock x:Name="AboutTitle" Text="WinGet Application Manager" FontSize="32" FontWeight="Bold" Margin="0,0,0,8"/>
-                            <TextBlock x:Name="AboutVersion" Text="Version 1.9.0" FontSize="16" Opacity="0.7" Margin="0,0,0,32"/>
+                            <TextBlock x:Name="AboutVersion" Text="Version 1.9.2" FontSize="16" Opacity="0.7" Margin="0,0,0,32"/>
                             
                             <TextBlock x:Name="AboutDescription" Text="A modern GUI for managing Windows applications with WinGet."
                                        FontSize="14" TextWrapping="Wrap" Margin="0,0,0,32" LineHeight="22"/>
@@ -565,6 +565,16 @@ $xaml = @"
                             <Border x:Name="ChangelogBorder" BorderThickness="0,1,0,0" Padding="0,24,0,0" Margin="0,0,0,24">
                                 <StackPanel>
                                     <TextBlock Text="📋 Changelog" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.9.2" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Major: All runspaces now use complete list of 159 WinGet error codes" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved: All error codes from main script now available in update, repair, and install operations" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Fixed: No more generic 'WinGet error (code: X)' messages - all show helpful descriptions" FontSize="13" Margin="16,0,0,16"/>
+                                    
+                                    <TextBlock Text="Version 1.9.1" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
+                                    <TextBlock Text="• Fixed: Added missing error code -1978335226 (ShellExecute failed)" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Improved: Error message now says 'app may be running - close it and try again'" FontSize="13" Margin="16,0,0,4"/>
+                                    <TextBlock Text="• Added: Error codes -1978335227 (Cancellation), -1978335207 (Requires admin), -1978335187 (Security check failed)" FontSize="13" Margin="16,0,0,16"/>
                                     
                                     <TextBlock Text="Version 1.9.0" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,8"/>
                                     <TextBlock Text="• New: PowerShell can now be updated even when running from it" FontSize="13" Margin="16,0,0,4"/>
@@ -1588,27 +1598,8 @@ $btnUpdateSelected.Add_Click({
             return $closed
         }
         
-        # WinGet error codes (for detailed error descriptions)
-        $wingetErrors = @{
-            0 = 'Success'
-            -1978335231 = 'Internal Error'
-            -1978335224 = 'Downloading installer failed'
-            -1978335216 = 'None of the installers are applicable for the current system'
-            -1978335215 = 'The installer file''s hash does not match the manifest'
-            -1978335214 = 'The source name does not exist'
-            -1978335212 = 'No packages found'
-            -1978335189 = 'No applicable update found'
-            -1978335184 = 'Running uninstall command failed'
-            -1978335153 = 'The upgrade version is not newer than the installed version'
-            -1978335135 = 'Found at least one version of the package installed'
-            -1978334975 = 'Application is currently running. Exit the application then try again.'
-            -1978334974 = 'Another installation is already in progress. Try again later.'
-            -1978334972 = 'This package has a dependency missing from your system.'
-            -1978334971 = 'There''s no more space on your PC. Make space, then try again.'
-            -1978334969 = 'This application requires internet connectivity. Connect to a network then try again.'
-            -1978334964 = 'You cancelled the installation.'
-            -1978334963 = 'Another version of this application is already installed.'
-        }
+        # Use complete error codes from main script (passed via opArgs)
+        $wingetErrors = $opArgs.ErrorCodes
         
         # Helper to get error description
         function Get-WinGetErrorDescription {
@@ -1833,7 +1824,7 @@ Read-Host 'Press Enter to close'
         Write-Log '═══════════════════════════════════════' 'Info'
     }
     
-    Start-RunspaceOperation -SyncHash $syncHash -WorkScript $updateScript -OpArgs @{ Packages = $selected } -OnComplete $updateComplete
+    Start-RunspaceOperation -SyncHash $syncHash -WorkScript $updateScript -OpArgs @{ Packages = $selected; ErrorCodes = $script:WinGetErrorCodes } -OnComplete $updateComplete
 })
 
 # INSTALL SELECTED
@@ -1978,7 +1969,7 @@ $btnInstallSelected.Add_Click({
         Write-Log '═══════════════════════════════════════' 'Info'
     }
     
-    Start-RunspaceOperation -SyncHash $syncHash -WorkScript $installScript -OpArgs @{ Packages = $selected } -OnComplete $installComplete
+    Start-RunspaceOperation -SyncHash $syncHash -WorkScript $installScript -OpArgs @{ Packages = $selected; ErrorCodes = $script:WinGetErrorCodes } -OnComplete $installComplete
 })
 
 # UNINSTALL SELECTED
@@ -2183,18 +2174,8 @@ $btnRepairSelected.Add_Click({
         $packages = $opArgs.Packages
         $results = @()
         
-        # WinGet error codes (for detailed error descriptions)
-        $wingetErrors = @{
-            0 = 'Success'
-            -1978335231 = 'Internal Error'
-            -1978335224 = 'Downloading installer failed'
-            -1978335189 = 'No applicable update found'
-            -1978335110 = 'Repair operation is not applicable.'
-            -1978335109 = 'Repair operation failed.'
-            -1978335108 = 'The installer technology in use doesn''t support repair.'
-            -1978334975 = 'Application is currently running. Exit the application then try again.'
-            -1978334974 = 'Another installation is already in progress. Try again later.'
-        }
+        # Use complete error codes from main script (passed via opArgs)
+        $wingetErrors = $opArgs.ErrorCodes
         
         # Helper to get error description
         function Get-WinGetErrorDescription {
@@ -2360,7 +2341,7 @@ $btnRepairSelected.Add_Click({
         Write-Log '═══════════════════════════════════════' 'Info'
     }
     
-    Start-RunspaceOperation -SyncHash $syncHash -WorkScript $repairScript -OpArgs @{ Packages = $selected } -OnComplete $repairComplete
+    Start-RunspaceOperation -SyncHash $syncHash -WorkScript $repairScript -OpArgs @{ Packages = $selected; ErrorCodes = $script:WinGetErrorCodes } -OnComplete $repairComplete
 })
 
 # CANCEL
@@ -2788,21 +2769,8 @@ $btnInstallChecked.Add_Click({
         $packages = $opArgs.Packages
         $results = @()
         
-        # WinGet error codes (for detailed error descriptions)
-        $wingetErrors = @{
-            0 = 'Success'
-            -1978335231 = 'Internal Error'
-            -1978335224 = 'Downloading installer failed'
-            -1978335216 = 'None of the installers are applicable for the current system'
-            -1978335215 = 'The installer file''s hash does not match the manifest'
-            -1978335212 = 'No packages found'
-            -1978335135 = 'Found at least one version of the package installed'
-            -1978334975 = 'Application is currently running. Exit the application then try again.'
-            -1978334974 = 'Another installation is already in progress. Try again later.'
-            -1978334972 = 'This package has a dependency missing from your system.'
-            -1978334971 = 'There''s no more space on your PC. Make space, then try again.'
-            -1978334963 = 'Another version of this application is already installed.'
-        }
+        # Use complete error codes from main script (passed via opArgs)
+        $wingetErrors = $opArgs.ErrorCodes
         
         # Helper to get error description
         function Get-WinGetErrorDescription {
@@ -2926,13 +2894,13 @@ $btnInstallChecked.Add_Click({
         Write-Log '═══════════════════════════════════════' 'Info'
     }
     
-    Start-RunspaceOperation -SyncHash $syncHash -WorkScript $installScript -OpArgs @{ Packages = $selected } -OnComplete $installComplete
+    Start-RunspaceOperation -SyncHash $syncHash -WorkScript $installScript -OpArgs @{ Packages = $selected; ErrorCodes = $script:WinGetErrorCodes } -OnComplete $installComplete
 })
 
 # Clear Grid button - clears imported packages from grid
 
 Write-Log '═══════════════════════════════════════' 'Info'
-Write-Log 'Winget Application Manager v1.9.0' 'Success'
+Write-Log 'Winget Application Manager v1.9.2' 'Success'
 Write-Log '═══════════════════════════════════════' 'Info'
 
 # Check WinGet availability
